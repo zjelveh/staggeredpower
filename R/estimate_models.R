@@ -12,14 +12,15 @@
 estimate_models <- function(data,
                             id_var,
                             outcome_var,
+                            time_var,
+                            group_var,
                             arrest_law_type,
                             use_controls,
                             models_to_run,
                             event_study = FALSE) {
   if(is.null(models_to_run)) {
-    models_to_run = c('csa', 'imp', 'sa', 'twfe')
+    models_to_run = c('cs', 'imputation', 'sa', 'twfe')
   }
-  
   
   
   # Prepare formula based on controls
@@ -37,62 +38,20 @@ estimate_models <- function(data,
   all_results = list()
   
   
-  if('etwfe' %in% models_to_run){
-    #Extended TWFE
-    control_frm <- if(use_controls) '~unemp_rate+all_crimes_rate' else '~1'
-    
-    m_etwfe = etwfe(
-      fml = formula(paste0(outcome_var, control_frm)),
-      tvar = 'year',
-      gvar = 'year_passed',
-      data = analysis_data[!is.na(unemp_rate) & !(is.na(all_crimes_rate))],
-      cgroup = 'notyet',
-      cluster = 'state'
-    )
-    
-    agg_etwfe = emfx(m_etwfe, type='simple', )
-    
-    all_results[['etwfe']][['agg']] = agg_etwfe
-    
-    if(event_study){
-      ev_twfe <- emfx(m_etwfe, type='event', post_only=FALSE)
-      all_results[['etwfe']][['ev']] = ev_twfe
-    }
-    
-  }
-  
-  if('csa' %in% models_to_run){
+
+  if('cs' %in% models_to_run){
     # Callaway Sant'Anna estimation
-    m_csa = att_gt(yname=outcome_var, xformla=as.formula(control_formula), tname='year', idname=id_var,
-                   data=analysis_data, allow_unbalanced_panel=FALSE, gname='year_passed',
+    m_csa = att_gt(yname=outcome_var, xformla=as.formula(control_formula), tname=time_var, idname=id_var,
+                   data=analysis_data, allow_unbalanced_panel=FALSE, gname=group_var,
                    panel=TRUE, control_group='notyettreated', clustervars='state', cores=30)
     agg_csa <- aggte(m_csa, type='simple', na.rm=T)
-    
-    all_results[['csa']][['agg']] = agg_csa
+    all_results[['cs']][['agg']] = agg_csa
     
     if(event_study){
       ev_csa <- aggte(m_csa, type='dynamic', na.rm=T, min_e=-6, max_e=10)
-      all_results[['csa']][['ev']] = ev_csa
+      all_results[['cs']][['ev']] = ev_csa
     }
   }
-  
-  if('sa' %in% models_to_run){
-    # Sun Abraham estimation
-    # ref -1, nevertreated
-    sa_formula <- as.formula(paste0(outcome_var, '~sunab(year_passed, year, ref.p=c(-1))',
-                                    if(use_controls) '+unemp_rate+all_crimes_rate', '|year +', id_var))
-    m_sa <- feols(sa_formula, data=analysis_data, cluster='state')
-    m_sa_summ <- summary(m_sa, agg = 'ATT')
-    
-    all_results[['sa']][['agg']] = m_sa_summ
-    
-    if(event_study){
-      ev_sa <- summary(m_sa, agg = 'period')
-      all_results[['sa']][['ev']] = ev_sa
-    }
-    
-  }  
-  
   
   if('twfe' %in% models_to_run){
     # TWFE estimation
@@ -113,7 +72,7 @@ estimate_models <- function(data,
   }  
   
   
-  if('imp'  %in% models_to_run){
+  if('imputation'  %in% models_to_run){
     # DID Imputation estimation
     imp_formula <- if(use_controls) as.formula('~0+unemp_rate+index_crimes_rate') else NULL
     m_imp <- did_imputation(data=analysis_data[!is.na(get(outcome_var))], yname=outcome_var, 
@@ -121,7 +80,7 @@ estimate_models <- function(data,
                             idname=id_var, first_stage=imp_formula, 
                             cluster_var='state')
     
-    all_results[['imp']][['agg']] = m_imp
+    all_results[['imputation']][['agg']] = m_imp
     
     if(event_study){
       # imp_formula <- if(use_controls) as.formula('~0+unemp_rate+index_crimes_rate') else NULL
@@ -129,11 +88,55 @@ estimate_models <- function(data,
                                gname='year_passed', tname='year',
                                idname=id_var, first_stage=imp_formula, cluster_var='state',
                                horizon=TRUE, pretrends=-6:0)
-      all_results[['imp']][['ev']] = ev_imp
+      all_results[['imputation']][['ev']] = ev_imp
       
     }
   }  
   
+  if('etwfe' %in% models_to_run){
+    #Extended TWFE
+    control_frm <- if(use_controls) '~unemp_rate+all_crimes_rate' else '~1'
+    
+    m_etwfe = etwfe(
+      fml = formula(paste0(outcome_var, control_frm)),
+      tvar = time_var,
+      gvar = group_var,
+      data = analysis_data[!is.na(unemp_rate) & !(is.na(all_crimes_rate))],
+      cgroup = 'notyet',
+      cluster = 'state'
+    )
+    
+    agg_etwfe = emfx(m_etwfe, type='simple', )
+    
+    all_results[['etwfe']][['agg']] = agg_etwfe
+    
+    if(event_study){
+      ev_twfe <- emfx(m_etwfe, type='event', post_only=FALSE)
+      all_results[['etwfe']][['ev']] = ev_twfe
+    }
+    
+  }
+  
+  if('sa' %in% models_to_run){
+    # Sun Abraham estimation
+    # ref -1, nevertreated
+    sa_formula <- as.formula(paste0(outcome_var, '~sunab(year_passed, year, ref.p=c(-1))',
+                                    if(use_controls) '+unemp_rate+all_crimes_rate', '|year +', id_var))
+    m_sa <- feols(sa_formula, data=analysis_data, cluster='state')
+    m_sa_summ <- summary(m_sa, agg = 'ATT')
+    
+    all_results[['sa']][['agg']] = m_sa_summ
+    
+    if(event_study){
+      ev_sa <- summary(m_sa, agg = 'period')
+      all_results[['sa']][['ev']] = ev_sa
+    }
+    
+  }  
+  
+  
+
+
   return(all_results)
   
 }

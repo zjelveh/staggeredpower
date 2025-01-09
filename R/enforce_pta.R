@@ -9,7 +9,7 @@
 #' @param unit Character. Name of unit identifier column (e.g., 'county_name')
 #' @param group Character. Name of treatment group column (e.g., 'year_passed')
 #' @param time Character. Name of time column (e.g., 'year')
-#' @param rel_pass Character. Name of relative time column (e.g., 'rel_pass')
+#' @param rel_pass_var Character. Name of relative time column (e.g., 'rel_pass')
 #' @param outcome Character. Name of outcome column 
 #' @param max_year Numeric. Maximum year to include in analysis
 #' @param pta_type Character. Control assumption: 'cs' or 'imputation'
@@ -45,7 +45,7 @@ enforce_PTA <- function(df,
                         unit = 'county_name',
                         group = 'year_passed', 
                         time = 'year',
-                        rel_pass = 'rel_pass',
+                        rel_pass_var = 'rel_pass',
                         outcome = NULL,
                         max_year = NULL,
                         pta_type = 'cs',
@@ -72,7 +72,7 @@ enforce_PTA <- function(df,
     units = unique(df[get(group)==g][[unit]])
     
     # Get the maximum relative time since treatment for the current group
-    max_rel_pass = max(df[get(group)==g][[rel_pass]])
+    max_rel_pass = max(df[get(group)==g][[rel_pass_var]])
     if(is.null(max_year))
       max_year = max(df[[group]])
     
@@ -168,82 +168,24 @@ PTA_type <- function(df_wide,
   pre_years_col = paste0('yr_', min_year : (g-1))
   
   if(pta_type=='cs'){
-    if(period=='pre_year'){
-      if(cohort=='notyettreated'){
-        # Identify control groups (not yet treated by the current post-treatment year)
-        # Subset the data for the control groups
-        y0_C = df_wide[get(group) > g + rp,
-                       c(pre_year_col, this_year_col, group),
-                       with=FALSE]
-        
-        if(nrow(y0_C)>0){
-          # Calculate the average difference between the current post-treatment year 
-          # and the pre-treatment year for the control groups
-          diffs = mean(y0_C[[this_year_col]] - y0_C[[pre_year_col]], na.rm=TRUE) 
-        }
-      }
-      
-      if(cohort=='lasttreated'){
-        # Identify control groups (not yet treated by the current post-treatment year)
-        # Subset the data for the control groups
-        y0_C = df_wide[get(group) == max_year,
-                       c(pre_year_col, this_year_col, group),
-                       with=FALSE]
-        
-        if(nrow(y0_C)>0){
-          # Calculate the average difference between the current post-treatment year and the pre-treatment year for the control groups
-          diffs = mean(y0_C[[this_year_col]] - y0_C[[pre_year_col]], na.rm=TRUE) 
-        } 
-      }
+    # Identify control groups (not yet treated by the current post-treatment year)
+    # Subset the data for the control groups
+    y0_C = df_wide[get(group) > g + rp,
+                   c(pre_year_col, this_year_col, group),
+                   with=FALSE]
+    
+    if(nrow(y0_C)>0){
+      # Calculate the average difference between the current post-treatment year 
+      # and the pre-treatment year for the control groups
+      diffs = mean(y0_C[[this_year_col]] - y0_C[[pre_year_col]], na.rm=TRUE) 
     }
     
-    if(period=='pre_years'){
-      if(cohort=='notyettreated'){
-        # Subset the data for the control groups
-        y0_C = df_wide[get(group) > g + rp,
-                       c(pre_years_col, this_year_col, group),
-                       with=FALSE]
-        
-        if(nrow(y0_C)>0){
-          # Calculate the average difference between the current post-treatment year
-          # and the average of all pre-treatment years for the control groups
-          diffs = mean(rowMeans(y0_C[[ this_year_col]] - y0_C[,pre_years_col,with=F], na.rm=T))
-        }
-      }
-      
-      if(cohort=='lasttreated'){
-        # Subset the data for the control groups
-        y0_C = df_wide[get(group) == max_year,
-                       c(pre_years_col, this_year_col, group),
-                       with=FALSE]
-        
-        if(nrow(y0_C)>0){
-          # Calculate the average difference between the current post-treatment year
-          # and the average of all pre-treatment years for the control groups
-          diffs = mean(rowMeans(y0_C[[ this_year_col]] - y0_C[,pre_years_col,with=F], na.rm=T))
-        }
-      }
-    }
+    y0_T = df_wide[get(group)==g,
+                   c(pre_year_col, this_year_col, unit, group),
+                   with=FALSE]
     
+    target_ybar_post = diffs + mean(y0_T[[pre_year_col]], na.rm=T)
     
-    if(period=='pre_year'){
-      y0_T = df_wide[get(group)==g,
-                     c(pre_year_col, this_year_col, unit, group),
-                     with=FALSE]
-      
-      target_ybar_post = diffs + mean(y0_T[[pre_year_col]], na.rm=T)
-    }
-    
-    
-    if(period=='pre_years'){
-      # Subset the data for the treated group
-      y0_T = df_wide[get(group)==g,
-                     c(pre_years_col, this_year_col, unit, group),
-                     with=FALSE]
-      
-      target_ybar_post = diffs + mean(rowMeans(y0_T[, pre_years_col, with=F], na.rm=T), na.rm=T)
-      
-    }
     
     if(!is.na(target_ybar_post)) {
       if(target_ybar_post < 0) {
@@ -257,69 +199,71 @@ PTA_type <- function(df_wide,
           samples <- sample_lognormal_with_mean(nrow(y0_T), 
                                                 target_ybar_post, 
                                                 cv)
-        } else{
-          if(enforce_type == 'realistic') {
-            # Realistic version with AR(1) process
-            samples <- numeric(nrow(y0_T))
-            
-            for(i in seq_len(nrow(y0_T))) {
-              unit_i <- y0_T[i, get(unit)]
-              
-              # Get unit and time fixed effects
-              unit_effect <- unit_fe[unit == as.character(unit_i), unit_effect]
-              time_effect <- time_fe[time == as.character(g + rp), time_effect]
-              
-              # Get last period's actual outcome for AR(1)
-              last_outcome <- df_wide[get(unit) == unit_i, get(pre_year_col)]
-              last_predicted <- unit_effect + 
-                time_fe[time == as.character(g-1), time_effect]
-              last_resid <- last_outcome - last_predicted
-              
-              # Generate new residual using AR(1)
-              new_resid <- rho_hat * last_resid + 
-                rnorm(1, 0, sd_resid * sqrt(1 - rho_hat^2))
-              
-              # Combine components
-              samples[i] <- unit_effect + time_effect + new_resid
-            }
-            
-            # Rescale to preserve parallel trends
-            scaling_factor <- target_ybar_post / mean(samples)
-            samples <- samples * scaling_factor
-          } else if(enforce_type=='simple_correlated'){
-            pre_means <- y0_T[, .(pre_mean = mean(rowMeans(.SD, na.rm=TRUE))), 
-                              by=unit,
-                              .SDcols = names(y0_T)[names(y0_T) %in% pre_years_col]]
-            
-            # Get rank order of pre-period means
-            pre_means[, rank := rank(pre_mean, ties.method="random")]
-            
-            
-            # Generate lognormal samples
-            cv <- sd(y0_C[[pre_year_col]])/mean(y0_C[[pre_year_col]])
-            raw_samples <- sample_lognormal_with_mean(nrow(y0_T), 
-                                                      target_ybar_post, 
-                                                      cv)
-            
-            # Order the samples from smallest to largest
-            ordered_samples <- sort(raw_samples)
-            
-            # Create mapping of ranks to samples
-            samples_by_rank <- data.table(
-              rank = 1:length(ordered_samples),
-              sample = ordered_samples
-            )
-            
-            # Merge ranks with samples
-            pre_means <- merge(pre_means, samples_by_rank, by="rank")
-            
-            # Create final samples vector in original unit order
-            samples <- merge(y0_T[, .(unit=get(unit))], 
-                             pre_means[, .(unit=get(unit), sample)], 
-                             by="unit")$sample
-          }
         } 
-      }
+        if(enforce_type == 'realistic') {
+          # Realistic version with AR(1) process
+          samples <- numeric(nrow(y0_T))
+          
+          for(i in seq_len(nrow(y0_T))) {
+            unit_i <- y0_T[i, get(unit)]
+            
+            # Get unit and time fixed effects
+            unit_effect <- unit_fe[unit == as.character(unit_i), unit_effect]
+            time_effect <- time_fe[time == as.character(g + rp), time_effect]
+            
+            # Get last period's actual outcome for AR(1)
+            last_outcome <- df_wide[get(unit) == unit_i, get(pre_year_col)]
+            last_predicted <- unit_effect + 
+              time_fe[time == as.character(g-1), time_effect]
+            last_resid <- last_outcome - last_predicted
+            
+            # Generate new residual using AR(1)
+            new_resid <- rho_hat * last_resid + 
+              rnorm(1, 0, sd_resid * sqrt(1 - rho_hat^2))
+            
+            # Combine components
+            samples[i] <- unit_effect + time_effect + new_resid
+          }
+          
+          # Rescale to preserve parallel trends
+          scaling_factor <- target_ybar_post / mean(samples)
+          samples <- samples * scaling_factor
+        }
+        
+        if(enforce_type=='simple_correlated'){
+          pre_means <- y0_T[, .(pre_mean = mean(rowMeans(.SD, na.rm=TRUE))), 
+                            by=unit,
+                            .SDcols = names(y0_T)[names(y0_T) %in% pre_years_col]]
+          
+          # Get rank order of pre-period means
+          pre_means[, rank := rank(pre_mean, ties.method="random")]
+          
+          
+          # Generate lognormal samples
+          cv <- sd(y0_C[[pre_year_col]])/mean(y0_C[[pre_year_col]])
+          raw_samples <- sample_lognormal_with_mean(nrow(y0_T), 
+                                                    target_ybar_post, 
+                                                    cv)
+          
+          # Order the samples from smallest to largest
+          ordered_samples <- sort(raw_samples)
+          
+          # Create mapping of ranks to samples
+          samples_by_rank <- data.table(
+            rank = 1:length(ordered_samples),
+            sample = ordered_samples
+          )
+          
+          # Merge ranks with samples
+          pre_means <- merge(pre_means, samples_by_rank, by="rank")
+          
+          # Create final samples vector in original unit order
+          samples <- merge(y0_T[, .(unit=get(unit))], 
+                           pre_means[, .(unit=get(unit), sample)], 
+                           by="unit")$sample
+        }
+      } 
+      
       
       # Assign samples back to the data (same as before)
       y0_T[, replace_value := samples]
@@ -347,11 +291,53 @@ PTA_type <- function(df_wide,
     }
     
     df_wide[, replace_value:=NULL]
-  }
-  
-  if(pta_type=='imputation'){
     
   }
+  
+  
+  if(pta_type=='imputation'){
+    # Get treated units for current period
+    y0_T = df_wide[get(group)==g,
+                   c(unit, this_year_col),
+                   with=FALSE]
+    
+    # For each treated unit
+    samples = numeric(nrow(y0_T))
+    for(i in seq_len(nrow(y0_T))) {
+      unit_i <- y0_T[i, get(unit)]
+      
+      # Get point prediction
+      mean_pred <- unit_fe[unit == as.character(unit_i), unit_effect] + 
+        time_fe[time == as.character(g + rp), time_effect]
+      
+      # Generate random counterfactual
+      
+      samples[i] <- rnorm(1, mean_pred, sd_resid)
+      if(samples[i]<0){
+        bound_error=TRUE
+      }
+      
+    }
+    
+    # Replace values in wide data
+    y0_T[, replace_value := samples]
+    
+    df_wide = merge(df_wide,
+                    y0_T[, c(unit, 'replace_value'),
+                         with=F],
+                    all.x=T,
+                    by=unit)
+    
+    df_wide[!is.na(replace_value), 
+            eval(this_year_col):=replace_value]
+    
+    df_wide[, replace_value:=NULL]
+    
+    target_ybar_post = mean(samples, na.rm=TRUE)
+    
+  }
+  
+  
   return(list(df_wide=df_wide,
               group=g,
               time=g+rp,

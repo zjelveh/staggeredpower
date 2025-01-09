@@ -2,32 +2,34 @@
 #' Compute Treatment Effects
 #' 
 #' @param df Dataset
-#' @param period Pre-period type
-#' @param cohort Control group type
+#' @param pta_type Which pta assumption ("cs" or "imputation") 
+#' @param enforce_type Method for enforcing parallel trends
 #' @param group Group variable
-#' @param time Time variable
+#' @param time_var time_var variable
+#' @param rel_pass_var rel_pass_var variable
 #' @param max_year Maximum year
 #' @param outcome Outcome variable
 #' @export
 compute_te <- function(df,
-                       period,
-                       cohort, 
-                       group,
-                       time,
+                       pta_type,
+                       enforce_type, 
+                       group_var,
+                       time_var,
+                       rel_pass_var,
                        max_year = NULL,
                        outcome) {
 
   df = df[!is.na(get(outcome))]
   gt = list()
-  groups = sort(unique(df[[group]]))
+  groups = sort(unique(df[[group_var]]))
   for(g in groups[groups<max_year]){
     for(yr in g:max_year){
-      yt_post = mean(df[get(group)==g & get(time)==yr][[outcome]])
-      if(period=='pre_year' & cohort=='notyettreated'){
-        yt_pre = mean(df[get(group)==g & rel_pass==-1][[outcome]])
-        yc_pre = mean(df[get(group)>yr & get(time)==g-1][[outcome]])
+      yt_post = mean(df[get(group_var)==g & get(time_var)==yr][[outcome]])
+      if(pta_type=='cs'){
+        yt_pre = mean(df[get(group_var)==g & get(rel_pass_var)==-1][[outcome]])
+        yc_pre = mean(df[get(group_var)>yr & get(time_var)==g-1][[outcome]])
         
-        yc_post = mean(df[get(group)>yr & get(time)==yr][[outcome]])
+        yc_post = mean(df[get(group_var)>yr & get(time_var)==yr][[outcome]])
         gt[[length(gt) + 1]] = data.table(
           group = g,
           time = yr,
@@ -38,42 +40,11 @@ compute_te <- function(df,
           te = (yt_post-yt_pre) - (yc_post-yc_pre)
         )
       }
-      if(period=='pre_year' & cohort=='lasttreated'){
-        yt_pre = mean(df[get(group)==g & rel_pass==-1][[outcome]])
-        yc_pre = mean(df[get(group)==max_year+1 & get(time)==g-1][[outcome]])
+      if(pta_type=='imputation'){
+        yt_pre = mean(df[get(group_var)==g & get(rel_pass_var)<=-1][[outcome]])
+        yc_pre = mean(df[get(group_var)>yr & get(time_var)<=g-1][[outcome]])
         
-        yc_post = mean(df[get(group)==max_year+1 & get(time)==yr][[outcome]])
-        gt[[length(gt) + 1]] = data.table(
-          group = g,
-          time = yr,
-          yt_post = yt_post,
-          yt_pre = yt_pre,
-          yc_post = yc_post,
-          yc_pre = yc_pre,
-          te = (yt_post-yt_pre) - (yc_post-yc_pre)
-        )
-      }
-      if(period=='pre_years' & cohort=='lasttreated'){
-        
-        yt_pre = mean(df[get(group)==g & rel_pass<=-1][[outcome]])
-        yc_pre = mean(df[get(group)==max_year+1 & get(time)<=g-1][[outcome]])
-        
-        yc_post = mean(df[get(group)==max_year+1 & get(time)==yr][[outcome]])
-        gt[[length(gt) + 1]] = data.table(
-          group = g,
-          time = yr,
-          yt_post = yt_post,
-          yt_pre = yt_pre,
-          yc_post = yc_post,
-          yc_pre = yc_pre,
-          te = (yt_post-yt_pre) - (yc_post-yc_pre)
-        )
-      }
-      if(period=='pre_years' & cohort=='notyettreated'){
-        yt_pre = mean(df[get(group)==g & rel_pass<=-1][[outcome]])
-        yc_pre = mean(df[get(group)>yr & get(time)<=g-1][[outcome]])
-        
-        yc_post = mean(df[get(group)>yr & get(time)==yr][[outcome]])
+        yc_post = mean(df[get(group_var)>yr & get(time_var)==yr][[outcome]])
         gt[[length(gt) + 1]] = data.table(
           group = g,
           time = yr,

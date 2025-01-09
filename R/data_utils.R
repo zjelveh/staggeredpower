@@ -15,7 +15,7 @@ create_wide <- function(df,
   # Reshape the data frame from long to wide format
   df = df[!is.na(get(outcome))]
   y0_wide = dcast(df, 
-                  get(unit)+get(group) ~ get(time), 
+                  get(unit) + get(group) ~ get(time), 
                   value.var=outcome)
   
   # Rename the time columns to have a "yr_" prefix
