@@ -1,0 +1,27 @@
+Package: staggeredpower
+Title: Power Analysis for Staggered Difference-in-Differences Designs
+Version: 0.1.0
+Authors@R: 
+    person("Your", "Name", email = "your.email@example.com", role = c("aut", "cre"))
+Description: Tools for conducting power analysis in staggered difference-in-differences 
+    designs. Implements methods for enforcing parallel trends assumptions and simulating 
+    treatment effects to assess statistical power.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    data.table,
+    fixest,
+    did,
+    did2s,
+    didimputation,
+    foreach,
+    doParallel,
+    RSQLite,
+    yaml
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown
+Config/testthat/edition: 3
