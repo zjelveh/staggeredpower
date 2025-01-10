@@ -107,65 +107,48 @@ enforce_PTA <- function(df,
 #'
 #' @export
 enforce_PTA_imputation = function(df, unit, group, time, outcome, enforce_type){
-  # Split into pre/post treatment periods
-  df[, treated := get(time) > get(group)]  
-
+  # Split into pre/post treatment periods  
+  df[, treated := get(time) > get(group)]
   df_untreated = df[treated==FALSE]
   
+  # Estimate FEs
   if(enforce_type=='controls'){
     fe_formula = as.formula(paste0(outcome, '~ unemp_rate | ', unit, ' + ', time))
   } else {
     fe_formula = as.formula(paste0(outcome, '~ 1 | ', unit, ' + ', time))
   }
   
-  # Estimate FEs on untreated observations only
   mod_fe = feols(fe_formula, data = df_untreated)
   
-  # Extract components
+  # Get fixed effects and ensure types match
   unit_effects = data.table(
-    unit = names(fixef(mod_fe)[[unit]]),
+    unit = as.numeric(names(fixef(mod_fe)[[unit]])), # or as.character() depending on your data
     unit_effect = fixef(mod_fe)[[unit]]
   )
+  setnames(unit_effects, "unit", unit) # explicitly set column name to match
   
-  time_effects = data.table( 
-    time = names(fixef(mod_fe)[[time]]),
+  time_effects = data.table(
+    time = as.numeric(names(fixef(mod_fe)[[time]])), # or as.character()
     time_effect = fixef(mod_fe)[[time]]
   )
-
-  resid_sd = sd(resid(mod_fe), na.rm = TRUE)
+  setnames(time_effects, "time", time) # explicitly set column name to match
   
-  # Add predictions column for all observations
-  df[, counterfactual := NA_real_]
+  # Merge effects back 
+  df[unit_effects, unit_effect := i.unit_effect, on = eval(unit)]
+  df[time_effects, time_effect := i.time_effect, on = eval(time)]
   
-  # For untreated observations, use actual values
-  df[treated==FALSE, counterfactual := get(outcome)]
-
-  # Generate counterfactuals for treated observations
-  df_treated_idx = which(df$treated)
+  # Generate predictions 
+  df[, counterfactual := get(outcome)]
   
-  for(i in df_treated_idx) {
-    unit_i = df[i][[unit]]
-    time_i = df[i][[time]]
-    
-    # Get fixed effects
-    unit_effect = unit_effects[unit == unit_i, unit_effect]
-    time_effect = time_effects[time == time_i, time_effect]
-    
-    # Add controls if specified
-    if(enforce_type == 'controls') {
-      controls_effect = df[i, unemp_rate] * coef(mod_fe)['unemp_rate']
-      mean_pred = unit_effect + time_effect + controls_effect
-    } else {
-      mean_pred = unit_effect + time_effect
-    }
-
-    # Sample counterfactual
-    df[i, counterfactual := rnorm(1, mean_pred, resid_sd)]
+  if(enforce_type == 'controls') {
+    controls_effect = df[treated==TRUE, unemp_rate] * coef(mod_fe)['unemp_rate']
+    df[treated==TRUE, counterfactual := unit_effect + time_effect + controls_effect]
+  } else {
+    df[treated==TRUE, counterfactual := unit_effect + time_effect]
   }
   
   return(df)
 }
-
 
 #' Enforce parallel trends using Callaway & Sant'Anna approach
 #'
