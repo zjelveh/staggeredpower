@@ -7,7 +7,6 @@
 #' @param group Group variable
 #' @param time_var time_var variable
 #' @param rel_pass_var rel_pass_var variable
-#' @param max_year Maximum year
 #' @param outcome Outcome variable
 #' @export
 compute_te <- function(df,
@@ -16,9 +15,9 @@ compute_te <- function(df,
                        group_var,
                        time_var,
                        rel_pass_var,
-                       max_year = NULL,
                        outcome) {
 
+  max_year = max(unique(df[[group_var]]))
   df = df[!is.na(get(outcome))]
   gt = list()
   groups = sort(unique(df[[group_var]]))
