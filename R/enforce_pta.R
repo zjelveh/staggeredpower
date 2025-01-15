@@ -79,7 +79,7 @@ enforce_PTA <- function(df,
 #' @param group Character string specifying the column name for treatment group/cohort
 #' @param time Character string specifying the column name for time periods
 #' @param outcome Character string specifying the column name for the outcome variable
-#' @param enforce_type Character string specifying whether to include controls ("controls") or 
+#' @param controls Character string specifying whether to include controls ("controls") or 
 #'   use only fixed effects ("none")
 #'
 #' @return A data.table with an additional column 'counterfactual' containing:
@@ -106,229 +106,155 @@ enforce_PTA <- function(df,
 #' result <- enforce_PTA_imputation(df, "unit", "group", "time", "y", "none")
 #'
 #' @export
-enforce_PTA_imputation = function(df, unit, group, time, outcome, enforce_type){
+enforce_PTA_imputation = function(df, unit, group, time, outcome, controls){
   # Split into pre/post treatment periods  
   df[, treated := get(time) > get(group)]
   df_untreated = df[treated==FALSE]
   
-  # Estimate FEs
-  if(enforce_type=='controls'){
-    fe_formula = as.formula(paste0(outcome, '~ unemp_rate | ', unit, ' + ', time))
+  # Estimate FEs with controls if provided
+  if(length(controls) > 0){
+    # Create formula with all controls
+    control_terms = paste(controls, collapse = " + ")
+    fe_formula = as.formula(paste0(outcome, " ~ ", control_terms, " | ", unit, " + ", time))
   } else {
-    fe_formula = as.formula(paste0(outcome, '~ 1 | ', unit, ' + ', time))
+    fe_formula = as.formula(paste0(outcome, " ~ 1 | ", unit, " + ", time))
   }
   
   mod_fe = feols(fe_formula, data = df_untreated)
+  resid_sd <- sigma(mod_fe)
   
   # Get fixed effects and ensure types match
   unit_effects = data.table(
-    unit = as.numeric(names(fixef(mod_fe)[[unit]])), # or as.character() depending on your data
+    unit = as.numeric(names(fixef(mod_fe)[[unit]])),
     unit_effect = fixef(mod_fe)[[unit]]
   )
-  setnames(unit_effects, "unit", unit) # explicitly set column name to match
+  setnames(unit_effects, "unit", unit)
   
   time_effects = data.table(
-    time = as.numeric(names(fixef(mod_fe)[[time]])), # or as.character()
+    time = as.numeric(names(fixef(mod_fe)[[time]])),
     time_effect = fixef(mod_fe)[[time]]
   )
-  setnames(time_effects, "time", time) # explicitly set column name to match
+  setnames(time_effects, "time", time)
   
   # Merge effects back 
   df[unit_effects, unit_effect := i.unit_effect, on = eval(unit)]
   df[time_effects, time_effect := i.time_effect, on = eval(time)]
   
-  # Generate predictions 
+  # Generate predictions including control effects if present
   df[, counterfactual := get(outcome)]
   
-  if(enforce_type == 'controls') {
-    controls_effect = df[treated==TRUE, unemp_rate] * coef(mod_fe)['unemp_rate']
-    df[treated==TRUE, counterfactual := unit_effect + time_effect + controls_effect]
+  if(length(controls) > 0) {
+    # Get coefficients for controls
+    control_effects = coef(mod_fe)[controls]
+    names(control_effects) = controls
+    control_effects[is.na(control_effects)] = 0
+    
+    # Calculate total control effect
+    df[treated==TRUE, 
+       control_effect := Reduce(`+`, Map(function(x,y) get(x) * y, 
+                                         controls, control_effects))]
+    
+    df[treated==TRUE, counterfactual := unit_effect + time_effect + control_effect  + 
+         rnorm(.N, mean=0, sd=resid_sd)]
+    df[, control_effect := NULL]
   } else {
-    df[treated==TRUE, counterfactual := unit_effect + time_effect]
+    df[treated==TRUE, counterfactual := unit_effect + time_effect + 
+         rnorm(.N, mean=0, sd=resid_sd)]
   }
   
   return(df)
 }
 
-#' Enforce parallel trends using Callaway & Sant'Anna approach
-#'
-#' @description
-#' Implements the Callaway & Sant'Anna (2021) approach to enforcing parallel trends
-#' in staggered difference-in-differences designs. For each treated group and time period,
-#' uses not-yet-treated units as controls to compute counterfactual outcomes.
-#'
-#' @param df A data.table containing the panel data
-#' @param unit Column name for unit identifiers 
-#' @param group Column name for treatment cohort/group
-#' @param time Column name for time periods
-#' @param rel_pass_var Column name for relative time since treatment
-#' @param outcome Column name for outcome variable
-#' @param enforce_type Character string specifying sampling approach:
-#'   - "simple": Independent lognormal sampling around target mean
-#'   - "simple_correlated": Lognormal sampling preserving pre-treatment rank order
-#'
-#' @return A data.table in long format with counterfactual outcomes for treated observations
-#'
-#' @details
-#' For each treatment group g and relative time period rp:
-#' 1. Identifies control units not yet treated by time g + rp
-#' 2. Calculates mean outcome change for controls between pre/post periods
-#' 3. Uses this to compute target mean outcome for treated units
-#' 4. Generates counterfactual outcomes via sampling to achieve target mean
-#'
-#' Sampling methods:
-#' - simple: Independent lognormal draws around target mean
-#' - simple_correlated: Preserves rank ordering from pre-treatment period
-#'
-#' Requires balanced panel without missing data.
-#'
-#' @references
-#' Callaway, B., & Sant'Anna, P. H. C. (2021). Difference-in-differences with multiple time periods. 
-#' Journal of Econometrics, 225(2), 200-230.
-#'
-#' @examples
-#' df <- data.table(
-#'   unit = rep(1:10, each=5),
-#'   time = rep(2000:2004, 10), 
-#'   group = rep(c(2001,2002,2003), length.out=10),
-#'   y = rnorm(50),
-#'   rel_time = rep(-2:2, 10)
-#' )
-#' result <- enforce_PTA_CS(df, "unit", "group", "time", "rel_time", "y", "simple")
-#' @export
-enforce_PTA_CS = function(df, unit, group, time, rel_pass_var, 
-                          outcome, enforce_type){
-  
-  # Create a wide format data frame
-  df_wide = create_wide(df, 
-                        group,
-                        unit,
-                        time,
-                        outcome)
-  
-  
-  min_year = as.numeric(gsub('yr_', '', names(df_wide)[3]))
-  
-  max_year = max(df[[group]])
-  
-  # Get the sorted unique group values
+
+
+
+enforce_PTA_CS = function(df, unit, group, time, rel_pass_var, outcome, controls) {
+  # Get key parameters
   groups = sort(unique(df[[group]]))
+  max_year = max(df[[time]])
+  
+  # Make a copy to store counterfactuals
+  df_new = copy(df)
+  df_new[, counterfactual := get(outcome)]
   
   # Iterate over each group
-  for(g in groups){
-    pre_year_col = paste0('yr_', g - 1) # year before treatment
-    pre_years_col = paste0('yr_', min_year : (g-1))
-    
-    # Get the unique units for the current group
-    units = unique(df[get(group)==g][[unit]])
-    
-    # Get the maximum relative time since treatment for the current group
+  for(g in groups) {
+    # Get the max relative time for this group
     max_rel_pass = max(df[get(group)==g][[rel_pass_var]])
     
-    # Iterate over each relative time period
-    for(rp in 0 : max_rel_pass){
-      if(g + rp <= max_year - 1 & g <= max_year){
+    # For each relative period after treatment
+    for(rp in 0:max_rel_pass) {
+      
+      curr_time = g + rp
+      if(curr_time <= max_year) {
+        pre_time = g - 1
         
-        # Enforce the specified parallel trends assumption
-        diffs=NA
+        # Get control group data - those not yet treated at curr_time
+        control_data = df[get(group) > curr_time | is.na(get(group))]
         
-        # Define column names for the current post-treatment year, pre-treatment year, and all pre-treatment years
-        this_year_col = paste0('yr_', g + rp) # current post treatment year
+        # Get pre/post periods for controls
+        control_pre = control_data[get(time) == pre_time]
+        control_post = control_data[get(time) == curr_time]
         
-        # Identify control groups (not yet treated by the current post-treatment year)
-        # Subset the data for the control groups
-        y0_C = df_wide[get(group) > g + rp,
-                       c(pre_year_col, this_year_col, group),
-                       with=FALSE]
         
-        # Calculate the average difference between the current post-treatment year 
-        # and the pre-treatment year for the control groups
-        diffs = mean(y0_C[[this_year_col]] - y0_C[[pre_year_col]], na.rm=TRUE) 
-
-        y0_T = df_wide[get(group)==g,
-                       c(pre_year_col, this_year_col, unit, group),
-                       with=FALSE]
+        # Merge pre/post for controls to calculate changes
+        control_changes = merge(control_pre, control_post, 
+                                by=c(unit),
+                                suffixes=c("_pre", "_post"))
         
-        target_ybar_post = diffs + mean(y0_T[[pre_year_col]], na.rm=T)
+        control_changes[, delta_y := get(paste0(outcome, "_post")) - 
+                          get(paste0(outcome, "_pre"))]
         
-        if(target_ybar_post < 0) {
-          samples <- rep(target_ybar_post, nrow(y0_T))
+        # Use pre-period controls for regression
+        if(length(controls) > 0) {
+          # Use the _pre version of controls from merge
+          X_control = as.matrix(cbind(1, control_changes[, paste0(controls, "_pre"), with=FALSE]))
         } else {
-          # Branch based on enforcement type
-          if(enforce_type == 'simple') {
-            # Simple version: Just use lognormal sampling
-            cv <- sd(y0_C[[pre_year_col]])/mean(y0_C[[pre_year_col]])
-            samples <- sample_lognormal_with_mean(nrow(y0_T), 
-                                                  target_ybar_post, 
-                                                  cv)
-          } 
+          X_control = as.matrix(rep(1, nrow(control_changes)))
+        }
+        
+        if(length(control_changes$delta_y)>0){
+          # Fit regression of changes on covariates for control group
+          reg_model = fastglm::fastglm(
+            x = X_control,
+            y = control_changes$delta_y,
+            family = stats::gaussian(link = "identity")
+          )
           
-          if(enforce_type=='simple_correlated'){
-            pre_means <- y0_T[, .(pre_mean = mean(rowMeans(.SD, na.rm=TRUE))), 
-                              by=unit,
-                              .SDcols = names(y0_T)[names(y0_T) %in% pre_years_col]]
-            
-            # Get rank order of pre-period means
-            pre_means[, rank := rank(pre_mean, ties.method="random")]
-            
-            
-            # Generate lognormal samples
-            cv <- sd(y0_C[[pre_year_col]])/mean(y0_C[[pre_year_col]])
-            raw_samples <- sample_lognormal_with_mean(nrow(y0_T), 
-                                                      target_ybar_post, 
-                                                      cv)
-            
-            # Order the samples from smallest to largest
-            ordered_samples <- sort(raw_samples)
-            
-            # Create mapping of ranks to samples
-            samples_by_rank <- data.table(
-              rank = 1:length(ordered_samples),
-              sample = ordered_samples
-            )
-            
-            # Merge ranks with samples
-            pre_means <- merge(pre_means, samples_by_rank, by="rank")
-            
-            # Create final samples vector in original unit order
-            samples <- merge(y0_T[, .(unit=get(unit))], 
-                             pre_means[, .(unit=get(unit), sample)], 
-                             by="unit")$sample
+          
+          if(reg_model$df.residual==0){
+            resid_sd <- sqrt(sum(reg_model$residuals^2) / 1)
+          } else{
+            resid_sd <- sqrt(sum(reg_model$residuals^2) / reg_model$df.residual)
           }
-        } 
+          
+          
+          # Get treated group data at pre-treatment period
+          treated_pre = df[get(group) == g & get(time) == pre_time]
+          
+          # Use pre-period controls for treated units
+          if(length(controls) > 0) {
+            X_treated = as.matrix(cbind(1, treated_pre[, ..controls]))
+          } else {
+            X_treated = as.matrix(rep(1, nrow(treated_pre)))
+          }
+          
+          # Predict counterfactual changes
+          predicted_changes = as.vector(X_treated %*% reg_model$coefficients)
+          
+          # Calculate counterfactual outcomes
+          counterfactuals = treated_pre[[outcome]] + predicted_changes + 
+            rnorm(length(predicted_changes), mean=0, sd=resid_sd)
         
-        
-        # Assign samples back to the data for this group and this rp (same as before)
-        y0_T[, replace_value := samples]
-        
-        df_wide = merge(df_wide,
-                        y0_T[, c(unit, 'replace_value'),
-                             with=F],
-                        all.x=T,
-                        by=unit)
-        
-        df_wide[!is.na(replace_value), 
-                eval(this_year_col):=replace_value]
-        
-        df_wide[, replace_value:=NULL]
-        
-      } 
+          
+          # Update counterfactual values
+          df_new[get(group) == g & get(time) == curr_time, 
+                 counterfactual := counterfactuals]
+        }
+
+      }
     }
   }
   
-  # Convert the wide format data frame back to long format
-  df_new = melt(df_wide,
-                id.vars = c(unit, group),
-                value.name = 'counterfactual',
-                variable.name=time)
-  
-  # Convert the time variable to numeric
-  df_new[, eval(time):=as.numeric(gsub('yr_', '', get(time)))]
-  
-  
-  
-  df_new = merge(df, df_new, by=c(unit, group, time))
-  
   return(df_new)
 }
-

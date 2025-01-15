@@ -5,8 +5,8 @@
 #' @param data Original dataset
 #' @param aggregate_results Aggregated results
 #' @param event_study_results Event study results
-#' @param period Period type
-#' @param cohort Control group
+#' @param pta_type Pta type
+#' @param enforce_type Enforce type
 #' @param model Model type
 #' @param analysis_level Analysis level
 #' @param outcome Outcome variable
@@ -19,8 +19,8 @@ store_results <- function(results,
                           data,
                           aggregate_results,
                           event_study_results,
-                          period,
-                          cohort,
+                          pta_type,
+                          enforce_type,
                           model,
                           analysis_level,
                           outcome,
@@ -29,7 +29,7 @@ store_results <- function(results,
                           drop_add_states,
                           result_type) {
   for(model in names(results)) {
-    if(model%in%c('etwfe', 'imp')){
+    if(model%in%c('etwfe', 'imputation')){
       att = results[[model]]$agg$estimate
       se =  results[[model]]$agg$std.error
       att_ev = results[[model]]$ev$estimate
@@ -42,7 +42,7 @@ store_results <- function(results,
     }
     
     
-    if(model=='csa'){
+    if(model=='cs'){
       att = results[[model]]$agg$overall.att
       se =  results[[model]]$agg$overall.se
       att_ev = results[[model]]$ev$att.egt
@@ -61,8 +61,8 @@ store_results <- function(results,
     
     
     aggregate_results[[length(aggregate_results) + 1]] = data.table(
-      period = period,
-      cohort = cohort,
+      pta_type = pta_type,
+      enforce_type = enforce_type,
       model = model,
       level = analysis_level,
       outcome = outcome,
@@ -78,8 +78,8 @@ store_results <- function(results,
     )
     
     event_study_results[[length(event_study_results) + 1]] = data.table(
-      period = period,
-      cohort = cohort,
+      pta_type = pta_type,
+      enforce_type = enforce_type,
       model = model,
       level = analysis_level,
       outcome = outcome,
