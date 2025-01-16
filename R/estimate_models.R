@@ -4,7 +4,6 @@
 #' @param data Panel dataset
 #' @param id_var Unit identifier variable
 #' @param outcome_var Outcome variable
-#' @param arrest_law_type Type of law
 #' @param controls Whether to include controls
 #' @param models_to_run Vector of models to estimate
 #' @param event_study Whether to run event study
@@ -14,7 +13,6 @@ estimate_models <- function(data,
                             outcome_var,
                             time_var,
                             group_var,
-                            arrest_law_type,
                             controls,
                             models_to_run,
                             cluster_var='state',
@@ -25,12 +23,7 @@ estimate_models <- function(data,
   }
   
   
-  # Select data based on arrest law type
-  filtered_data <- switch(arrest_law_type,
-                          'all' = data,
-                          'mandatory' = data[is_mand==1],
-                          'discretionary' = data[is_disc==1])
-  
+
   # Filter data for relevant years
   analysis_data <- filtered_data[between(year, 1995, 2019)]
   
@@ -56,6 +49,7 @@ estimate_models <- function(data,
                    allow_unbalanced_panel=FALSE, 
                    gname=group_var,
                    panel=TRUE, 
+                   est_method='dr',
                    control_group='notyettreated',
                    clustervars=cluster_var,
                    cores=30)
@@ -66,6 +60,24 @@ estimate_models <- function(data,
       ev_csa <- aggte(m_csa, type='dynamic', na.rm=T, min_e=-6, max_e=10)
       all_results[['cs']][['ev']] = ev_csa
     }
+    
+    ###reg version
+    # Callaway Sant'Anna estimation
+    m_csa_reg = att_gt(yname=outcome_var, 
+                   xformla=control_formula, 
+                   tname=time_var, 
+                   idname=id_var,
+                   data=analysis_data,
+                   allow_unbalanced_panel=FALSE, 
+                   gname=group_var,
+                   panel=TRUE, 
+                   est_method='reg',
+                   control_group='notyettreated',
+                   clustervars=cluster_var,
+                   cores=30)
+    agg_csa_reg <- aggte(m_csa, type='simple', na.rm=T)
+    all_results[['cs_reg']][['agg']] = agg_csa_reg
+    
   }
   
   if('twfe' %in% models_to_run){

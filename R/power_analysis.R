@@ -50,7 +50,7 @@ run_power_analysis <- function(data_clean,
 
   if (nrow(pta_violations) > 0) {
     groups_to_drop = unique(pta_violations[[group_var]])
-    rerun_with_dropped_groups = TRUE  # Mark for rerun with dropped groups
+    rerun_with_dropped_groups = FALSE  # Mark for rerun with dropped groups
     cat("PTA violations detected. Groups to drop:", paste(sort(groups_to_drop), collapse = ", "), "\n")
   }
   
@@ -90,14 +90,14 @@ run_power_analysis <- function(data_clean,
             pta_type = pta_type,
             enforce_type = enforce_type)
 
-          temp = pta_enforced_sim[!is.na(counterfactual)]
-          
+
           # Now scale the counterfactual outcomes within the simulation
           counterfactual_data = copy(pta_enforced_sim)
           counterfactual_data[, y_cf := counterfactual]
-          counterfactual_data[get(treat_ind_var) == 1, y_cf := y_cf * percent_effect, by = group_var]
+          counterfactual_data[get(treat_ind_var) == 1, y_cf := y_cf * percent_effect]
           
           if (grepl('aggshare', outcome)) {
+            print('aggshare greater than 1')
             counterfactual_data[, y_cf := ifelse(y_cf > 1, 1, y_cf)]
           }
           
@@ -124,7 +124,6 @@ run_power_analysis <- function(data_clean,
               outcome_var = 'y_cf',
               time_var = time_var,
               group_var = group_var,
-              arrest_law_type = 'all',
               controls = controls,
               treat_ind_var = treat_ind_var,
               models_to_run = models_to_run)
@@ -148,6 +147,11 @@ run_power_analysis <- function(data_clean,
               }
               
               if(model=='cs'){
+                att = results[[model]]$agg$overall.att
+                se =  results[[model]]$agg$overall.se
+              }
+              
+              if(model=='cs_reg'){
                 att = results[[model]]$agg$overall.att
                 se =  results[[model]]$agg$overall.se
               }
@@ -188,8 +192,9 @@ run_power_analysis <- function(data_clean,
             
             
             returnz = list(results=rbindlist(new_temp))
+
           } else{
-            print('going in here')
+            
             new_temp[[length(new_temp) + 1]] = data.table(
               model=NA,
               level=unit_var,
@@ -217,9 +222,10 @@ run_power_analysis <- function(data_clean,
             )
             
             returnz = list(results=rbindlist(new_temp))
+            
           }
-          return(returnz) 
           
+          return(returnz) 
         }
       
       

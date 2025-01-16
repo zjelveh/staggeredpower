@@ -10,7 +10,6 @@
 #' @param model Model type
 #' @param analysis_level Analysis level
 #' @param outcome Outcome variable
-#' @param arrest_law_type Law type
 #' @param use_controls Control usage
 #' @param drop_add_states State dropping
 #' @param result_type Result type
@@ -24,7 +23,6 @@ store_results <- function(results,
                           model,
                           analysis_level,
                           outcome,
-                          arrest_law_type,
                           use_controls,
                           drop_add_states,
                           result_type) {
@@ -66,7 +64,6 @@ store_results <- function(results,
       model = model,
       level = analysis_level,
       outcome = outcome,
-      arr_law = arrest_law_type,
       att = att,
       se = se,
       ng = length(unique(data$year_passed)), 
@@ -83,7 +80,6 @@ store_results <- function(results,
       model = model,
       level = analysis_level,
       outcome = outcome,
-      arr_law = arrest_law_type,
       rel_pass = rel_pass,
       att = att_ev,
       se = se_ev,
