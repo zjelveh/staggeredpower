@@ -48,7 +48,7 @@ enforce_PTA <- function(df,
                         rel_pass_var = 'rel_pass',
                         outcome = NULL,
                         pta_type = 'cs',
-                        enforce_type = 'simple') {
+                        enforce_type = NULL) {
   
   if(pta_type=='imputation'){
     df_cf = enforce_PTA_imputation(df, unit, group, time, 

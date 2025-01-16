@@ -15,15 +15,14 @@ run_power_analysis <- function(data_clean,
                                group_var,
                                time_var,
                                rel_pass_var,
-                               treat_ind,
-                               pta_type,
-                               enforce_type,
-                               outcome,
+                               treat_ind_var,
                                controls=NULL,
+                               outcome,
+                               pta_type,
+                               enforce_type=NULL,
                                percent_effect,
                                models_to_run=c('cs', 'imputation', 'twfe'),
-                               n_sims = 100,
-                               max_year=2019) {
+                               n_sims = 100) {
   
 
   generate_key <- function(analysis_level, pta_type, enforce_type, outcome, controls, percent_effect, run_iteration) {
@@ -96,7 +95,7 @@ run_power_analysis <- function(data_clean,
           # Now scale the counterfactual outcomes within the simulation
           counterfactual_data = copy(pta_enforced_sim)
           counterfactual_data[, y_cf := counterfactual]
-          counterfactual_data[get(treat_ind) == 1, y_cf := y_cf * percent_effect, by = group_var]
+          counterfactual_data[get(treat_ind_var) == 1, y_cf := y_cf * percent_effect, by = group_var]
           
           if (grepl('aggshare', outcome)) {
             counterfactual_data[, y_cf := ifelse(y_cf > 1, 1, y_cf)]
@@ -105,7 +104,7 @@ run_power_analysis <- function(data_clean,
           model_data = copy(counterfactual_data)
           
           
-          if(sum(model_data[[treat_ind]])>0){
+          if(sum(model_data[[treat_ind_var]])>0){
             # Further steps for computing empirical treatment effects and saving results...
             te_computed = compute_te(df = model_data,
                                      pta_type=pta_type,
@@ -127,6 +126,7 @@ run_power_analysis <- function(data_clean,
               group_var = group_var,
               arrest_law_type = 'all',
               controls = controls,
+              treat_ind_var = treat_ind_var,
               models_to_run = models_to_run)
             
             # get weights
@@ -165,8 +165,8 @@ run_power_analysis <- function(data_clean,
                 outcome = outcome,
                 percent_effect = percent_effect,
                 pta_type=pta_type,
-                enforce_type=ifelse(is.null(enforce_type), 'simple', paste0(enforce_type, collapse='*')),
-                controls = ifelse(is.null(controls), 'no controls', paste0(controls, collapse='*')),
+                enforce_type=ifelse(is.null(enforce_type), 'no_controls', paste0(enforce_type, collapse='*')),
+                controls = ifelse(is.null(controls), 'no_controls', paste0(controls, collapse='*')),
                 att = att,
                 se = se,
                 group_list_csa = paste0(results[['cs']]$agg$DIDparams$glist, collapse=' '),
@@ -177,7 +177,7 @@ run_power_analysis <- function(data_clean,
                 ss_csa = nrow(results$cs$agg$DIDparams$data),
                 ss = nrow(model_data[!is.na(y_cf)]),
                 y0_bar_csa = mean(data.table(results$cs$agg$DIDparams$data)[get(group_var)>get(time_var)]$y_cf, na.rm=T),
-                y0_bar = mean(model_data[!is.na(y_cf)][get(treat_ind)==0][[outcome]], na.rm=T),
+                y0_bar = mean(model_data[!is.na(y_cf)][get(treat_ind_var)==0][[outcome]], na.rm=T),
                 sim = sim,
                 empirical_te = empirical_te,
                 iteration=run_iteration,
@@ -196,8 +196,8 @@ run_power_analysis <- function(data_clean,
               outcome = outcome,
               percent_effect = percent_effect,
               pta_type=pta_type,
-              enforce_type=ifelse(is.null(enforce_type), 'simple', paste0(enforce_type, collapse='*')),
-              controls = ifelse(is.null(controls), 'no controls', paste0(controls, collapse='*')),
+              enforce_type=ifelse(is.null(enforce_type), 'no_controls', paste0(enforce_type, collapse='*')),
+              controls = ifelse(is.null(controls), 'no_controls', paste0(controls, collapse='*')),
               att = NA,
               se = NA,
               group_list_csa = NA,
@@ -208,7 +208,7 @@ run_power_analysis <- function(data_clean,
               ss_csa = NA,
               ss = nrow(model_data[!is.na(y_cf)]),
               y0_bar_csa = NA,
-              y0_bar = mean(model_data[!is.na(y_cf)][get(treat_ind)==0][[outcome]], na.rm=T),
+              y0_bar = mean(model_data[!is.na(y_cf)][get(treat_ind_var)==0][[outcome]], na.rm=T),
               sim = sim,
               empirical_te = NA,
               iteration=run_iteration,

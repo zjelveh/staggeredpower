@@ -73,14 +73,14 @@ estimate_models <- function(data,
     if(length(controls) > 0){
       # Create formula with all controls
       twfe_formula = as.formula(
-        paste0(outcome_var, '~', tread_ind_var, 
+        paste0(outcome_var, '~', treat_ind_var, 
                paste(controls, collapse = " + "),
                '|', 
                id_var, '+', time_var))
     } else {
       # Create formula with all controls
       twfe_formula = as.formula(
-        paste0(outcome_var, '~', tread_ind_var, '|',
+        paste0(outcome_var, '~', treat_ind_var, '|',
                id_var, '+', time_var))
     }
     
