@@ -1,3 +1,5 @@
+**NOTE**: This package is in early development stages. 
+
 # staggeredpower
 
 `staggeredpower` is an R package designed for conducting power analysis in staggered difference-in-differences designs. It provides tools for enforcing parallel trends assumptions and simulating treatment effects to assess statistical power.
