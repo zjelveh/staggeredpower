@@ -111,15 +111,27 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
   resid_sd <- sigma(mod_fe)
   
   # Extract fixed effects
+  # Try to preserve the original data type
+  unit_names <- names(fixef(mod_fe)[[unit]])
+  if(is.numeric(df[[unit]])) {
+    unit_names <- as.numeric(unit_names)
+  }
   unit_effects <- data.table(
-    unit = names(fixef(mod_fe)[[unit]]),
+    unit = unit_names,
     unit_effect = as.numeric(fixef(mod_fe)[[unit]])
   )
+  setnames(unit_effects, "unit", unit)  # Rename to match df column name
+
+  time_names <- names(fixef(mod_fe)[[time]])
+  if(is.numeric(df[[time]])) {
+    time_names <- as.numeric(time_names)
+  }
   time_effects <- data.table(
-    time = names(fixef(mod_fe)[[time]]),
+    time = time_names,
     time_effect = as.numeric(fixef(mod_fe)[[time]])
   )
-  
+  setnames(time_effects, "time", time)  # Rename to match df column name
+
   # Merge effects
   df[unit_effects, on = unit, unit_effect := i.unit_effect]
   df[time_effects, on = time, time_effect := i.time_effect]
@@ -131,14 +143,16 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
   if (!is.null(controls) && length(controls) > 0) {
     control_effects <- coef(mod_fe)[controls]
     control_effects[is.na(control_effects)] <- 0
-    
-    df[treated == TRUE, control_effect := 
+
+    df[treated == TRUE, control_effect :=
          Reduce(`+`, Map(function(x, y) get(x) * y, controls, control_effects))]
-    
-    df[treated == TRUE, counterfactual := unit_effect + time_effect + control_effect]
+
+    df[treated == TRUE, counterfactual := unit_effect + time_effect + control_effect +
+         rnorm(.N, mean=0, sd=resid_sd)]
     df[, control_effect := NULL]
   } else {
-    df[treated == TRUE, counterfactual := unit_effect + time_effect]
+    df[treated == TRUE, counterfactual := unit_effect + time_effect +
+         rnorm(.N, mean=0, sd=resid_sd)]
   }
   
   return(df)
@@ -149,44 +163,93 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
 
 enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed = NULL) {
   if (!is.null(seed)) set.seed(seed)
-  
-  df <- copy(df)
-  df[, treated := !is.na(get(group)) & get(time) > get(group)]
-  
-  df_untreated <- df[treated == FALSE | is.na(treated)]
-  
-  # Fit pre/post regression for untreated
-  pre_period <- min(df_untreated[[time]])
-  post_period <- max(df_untreated[[time]])
-  df_untreated[, delta_y := fifelse(get(time) == post_period, get(outcome), NA) -
-                                 fifelse(get(time) == pre_period, get(outcome), NA)]
-  df_untreated <- df_untreated[!is.na(delta_y)]
-  
-  if (!is.null(controls) && length(controls) > 0) {
-    control_terms <- paste(controls, collapse = " + ")
-    reg_formula <- as.formula(paste0("delta_y ~ ", control_terms))
-  } else {
-    reg_formula <- as.formula("delta_y ~ 1")
+
+  # Get key parameters
+  groups = sort(unique(df[[group]]))
+  max_year = max(df[[time]])
+
+  # Make a copy to store counterfactuals
+  df_new = copy(df)
+  df_new[, counterfactual := get(outcome)]
+
+  # Calculate rel_pass_var if not present
+  if (!"rel_pass" %in% names(df_new)) {
+    df_new[, rel_pass := get(time) - get(group)]
   }
-  
-  reg_model <- lm(reg_formula, data = df_untreated)
-  
-  resid_sd <- if (reg_model$df.residual > 0) {
-    sqrt(sum(reg_model$residuals^2) / reg_model$df.residual)
-  } else {
-    sd(df_untreated$delta_y, na.rm = TRUE)
+
+  # Iterate over each group
+  for(g in groups) {
+    # Get the max relative time for this group
+    max_rel_pass = max(df_new[get(group)==g]$rel_pass, na.rm=TRUE)
+
+    # For each relative period after treatment
+    for(rp in 0:max_rel_pass) {
+
+      curr_time = g + rp
+      if(curr_time <= max_year) {
+        pre_time = g - 1
+
+        # Get control group data - those not yet treated at curr_time
+        control_data = df[get(group) > curr_time | is.na(get(group))]
+
+        # Get pre/post periods for controls
+        control_pre = control_data[get(time) == pre_time]
+        control_post = control_data[get(time) == curr_time]
+
+        # Merge pre/post for controls to calculate changes
+        control_changes = merge(control_pre, control_post,
+                                by=c(unit),
+                                suffixes=c("_pre", "_post"))
+
+        control_changes[, delta_y := get(paste0(outcome, "_post")) -
+                          get(paste0(outcome, "_pre"))]
+
+        # Use pre-period controls for regression
+        if(!is.null(controls) && length(controls) > 0) {
+          # Use the _pre version of controls from merge
+          X_control = as.matrix(cbind(1, control_changes[, paste0(controls, "_pre"), with=FALSE]))
+        } else {
+          X_control = as.matrix(rep(1, nrow(control_changes)))
+        }
+
+        if(length(control_changes$delta_y)>0){
+          # Fit regression of changes on covariates for control group
+          reg_model = fastglm::fastglm(
+            x = X_control,
+            y = control_changes$delta_y,
+            family = stats::gaussian(link = "identity")
+          )
+
+          if(reg_model$df.residual==0){
+            resid_sd <- sqrt(sum(reg_model$residuals^2) / 1)
+          } else{
+            resid_sd <- sqrt(sum(reg_model$residuals^2) / reg_model$df.residual)
+          }
+
+          # Get treated group data at pre-treatment period
+          treated_pre = df[get(group) == g & get(time) == pre_time]
+
+          # Use pre-period controls for treated units
+          if(!is.null(controls) && length(controls) > 0) {
+            X_treated = as.matrix(cbind(1, treated_pre[, ..controls]))
+          } else {
+            X_treated = as.matrix(rep(1, nrow(treated_pre)))
+          }
+
+          # Predict counterfactual changes
+          predicted_changes = as.vector(X_treated %*% reg_model$coefficients)
+
+          # Calculate counterfactual outcomes
+          counterfactuals = treated_pre[[outcome]] + predicted_changes +
+            rnorm(length(predicted_changes), mean=0, sd=resid_sd)
+
+          # Update counterfactual values
+          df_new[get(group) == g & get(time) == curr_time,
+                 counterfactual := counterfactuals]
+        }
+      }
+    }
   }
-  
-  # Predict counterfactuals for treated units
-  df[, counterfactual := get(outcome)]
-  if (!is.null(controls) && length(controls) > 0) {
-    control_effects <- coef(reg_model)[controls]
-    control_effects[is.na(control_effects)] <- 0
-    df[treated == TRUE, control_effect := 
-         Reduce(`+`, Map(function(x, y) get(x) * y, controls, control_effects))]
-    df[treated == TRUE, counterfactual := get(outcome) - control_effect]
-    df[, control_effect := NULL]
-  }
-  
-  return(df)
+
+  return(df_new)
 }

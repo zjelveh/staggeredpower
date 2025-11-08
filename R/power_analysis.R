@@ -35,8 +35,7 @@ run_power_analysis <- function(data_clean,
   data_clean_copy = copy(data_clean_full)
   
   data_clean_copy[, uq_row:=paste(get(unit_var), get(time_var))]
-  uq_rows = copy(data_clean_copy$uq_row)
-  row_numbers = 1:nrow(data_clean_copy)
+
   pta_enforced_orig = enforce_PTA(
     data_clean_copy,
     unit = unit_var,
@@ -44,7 +43,8 @@ run_power_analysis <- function(data_clean,
     time = time_var,
     outcome = outcome,
     controls = controls,
-    method = ifelse(pta_type == "cs", "CS", pta_type))
+    method = ifelse(pta_type == "cs", "CS", pta_type)
+  )
 
     
   if(is.null(transform_outcome)){

@@ -128,13 +128,8 @@ estimate_models <- function(data,
     if(length(controls) > 0){
       # Create formula with all controls
       imp_formula = as.formula(
-        paste0(
-          paste0('~ 1 + ',
-                 paste(controls, collapse = " + "),
-                 '|', group_var, '+', time_var
-          )
-        )
-      )
+        paste0('~ 0 + ',
+               paste(controls, collapse = " + ")))
     } else {
       # Create formula with all controls
       imp_formula = NULL
