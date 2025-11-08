@@ -1,2 +1,4 @@
 .Rproj.user
 .ipynb_checkpoints
+.Rbuildignore
+*.Rproj
