@@ -1,12 +1,14 @@
 # R/estimate_models.R
 #' Estimate Difference-in-Differences Models
-#' 
+#'
 #' @param data Panel dataset
 #' @param id_var Unit identifier variable
 #' @param outcome_var Outcome variable
 #' @param controls Whether to include controls
 #' @param models_to_run Vector of models to estimate
 #' @param event_study Whether to run event study
+#' @param min_year Numeric. Minimum year to include (optional)
+#' @param max_year Numeric. Maximum year to include (optional)
 #' @export
 estimate_models <- function(data,
                             id_var,
@@ -17,13 +19,23 @@ estimate_models <- function(data,
                             models_to_run,
                             cluster_var='state',
                             treat_ind_var='law_pass',
-                            event_study = FALSE) {
+                            event_study = FALSE,
+                            min_year = NULL,
+                            max_year = NULL) {
   if(is.null(models_to_run)) {
     models_to_run = c('cs', 'imputation', 'sa', 'twfe')
   }
-  
-  # Filter data for relevant years
-  analysis_data <- data[between(year, 1995, 2019)]
+
+  # Filter by year range if specified
+  if (!is.null(min_year) && !is.null(max_year)) {
+    analysis_data <- data[get(time_var) >= min_year & get(time_var) <= max_year]
+  } else if (!is.null(min_year)) {
+    analysis_data <- data[get(time_var) >= min_year]
+  } else if (!is.null(max_year)) {
+    analysis_data <- data[get(time_var) <= max_year]
+  } else {
+    analysis_data <- data
+  }
   
   all_results = list()
   
