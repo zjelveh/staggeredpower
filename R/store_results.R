@@ -13,6 +13,7 @@
 #' @param use_controls Control usage
 #' @param drop_add_states State dropping
 #' @param result_type Result type
+#' @param transform_outcome
 #' @export
 store_results <- function(results,
                           data,
@@ -20,12 +21,12 @@ store_results <- function(results,
                           event_study_results,
                           pta_type,
                           enforce_type,
-                          model,
                           analysis_level,
                           outcome,
                           use_controls,
                           drop_add_states,
-                          result_type) {
+                          result_type,
+                          transform_outcome) {
   for(model in names(results)) {
     if(model%in%c('etwfe', 'imputation')){
       att = results[[model]]$agg$estimate
@@ -59,8 +60,8 @@ store_results <- function(results,
     
     
     aggregate_results[[length(aggregate_results) + 1]] = data.table(
-      pta_type = pta_type,
-      enforce_type = enforce_type,
+      pta_type = ifelse(is.null(pta_type), NA, pta_type),
+      enforce_type = ifelse(is.null(enforce_type), NA, paste0(enforce_type, collapse='*')),
       model = model,
       level = analysis_level,
       outcome = outcome,
@@ -68,24 +69,26 @@ store_results <- function(results,
       se = se,
       ng = length(unique(data$year_passed)), 
       n = nrow(data),
-      controls = use_controls,
+      controls = paste0(use_controls, collapse='*'),
       ybar = mean(data[law_pass==0][[outcome]], na.rm=T),
       drop_add_states = drop_add_states,
-      result_type = result_type
+      result_type = result_type,
+      transform_outcome = transform_outcome
     )
     
     event_study_results[[length(event_study_results) + 1]] = data.table(
-      pta_type = pta_type,
-      enforce_type = enforce_type,
+      pta_type = ifelse(is.null(pta_type), NA, pta_type),
+      enforce_type = ifelse(is.null(enforce_type), NA, paste0(enforce_type, collapse='*')),
       model = model,
       level = analysis_level,
       outcome = outcome,
       rel_pass = rel_pass,
       att = att_ev,
       se = se_ev,
-      controls = use_controls,
+      controls = paste0(use_controls, collapse='*'),
       drop_add_states = drop_add_states,
-      result_type = result_type
+      result_type = result_type,
+      transform_outcome = transform_outcome
     )
     
   }

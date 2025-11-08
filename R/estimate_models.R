@@ -22,10 +22,8 @@ estimate_models <- function(data,
     models_to_run = c('cs', 'imputation', 'sa', 'twfe')
   }
   
-  
-
   # Filter data for relevant years
-  analysis_data <- filtered_data[between(year, 1995, 2019)]
+  analysis_data <- data[between(year, 1995, 2019)]
   
   all_results = list()
   
@@ -38,7 +36,6 @@ estimate_models <- function(data,
     } else {
       control_formula = as.formula(" ~ 1")
     }
-    
     
     # Callaway Sant'Anna estimation
     m_csa = att_gt(yname=outcome_var, 
@@ -60,23 +57,23 @@ estimate_models <- function(data,
       ev_csa <- aggte(m_csa, type='dynamic', na.rm=T, min_e=-6, max_e=10)
       all_results[['cs']][['ev']] = ev_csa
     }
-    
-    ###reg version
-    # Callaway Sant'Anna estimation
-    m_csa_reg = att_gt(yname=outcome_var, 
-                   xformla=control_formula, 
-                   tname=time_var, 
-                   idname=id_var,
-                   data=analysis_data,
-                   allow_unbalanced_panel=FALSE, 
-                   gname=group_var,
-                   panel=TRUE, 
-                   est_method='reg',
-                   control_group='notyettreated',
-                   clustervars=cluster_var,
-                   cores=30)
-    agg_csa_reg <- aggte(m_csa, type='simple', na.rm=T)
-    all_results[['cs_reg']][['agg']] = agg_csa_reg
+
+    # ###reg version
+    # # Callaway Sant'Anna estimation
+    # m_csa_reg = att_gt(yname=outcome_var, 
+    #                xformla=control_formula, 
+    #                tname=time_var, 
+    #                idname=id_var,
+    #                data=analysis_data,
+    #                allow_unbalanced_panel=FALSE, 
+    #                gname=group_var,
+    #                panel=TRUE, 
+    #                est_method='reg',
+    #                control_group='notyettreated',
+    #                clustervars=cluster_var,
+    #                cores=30)
+    # agg_csa_reg <- aggte(m_csa_reg, type='simple', na.rm=T)
+    # all_results[['cs_reg']][['agg']] = agg_csa_reg
     
   }
   
@@ -131,25 +128,32 @@ estimate_models <- function(data,
     if(length(controls) > 0){
       # Create formula with all controls
       imp_formula = as.formula(
-        paste0('~ 0+',
-               paste(controls, collapse = " + ")))
+        paste0(
+          paste0('~ 1 + ',
+                 paste(controls, collapse = " + "),
+                 '|', group_var, '+', time_var
+          )
+        )
+      )
     } else {
       # Create formula with all controls
       imp_formula = NULL
     }
     
-    m_imp <- did_imputation(data=analysis_data[!is.na(get(outcome_var))], yname=outcome_var, 
+    m_imp <- did_imputation(data=analysis_data[!is.na(get(outcome_var))], 
+                            yname=outcome_var, 
                             gname=group_var, 
                             tname=time_var,
-                            idname=id_var, first_stage=imp_formula, 
+                            idname=id_var, 
+                            first_stage=imp_formula, 
                             cluster_var=cluster_var)
-    
+
     all_results[['imputation']][['agg']] = m_imp
     
     if(event_study){
       ev_imp <- did_imputation(data=analysis_data[!is.na(get(outcome_var))], 
                                yname=outcome_var,
-                               gname=group-var,
+                               gname=group_var,
                                tname=time_var,
                                idname=id_var, 
                                first_stage=imp_formula, 
@@ -161,7 +165,6 @@ estimate_models <- function(data,
     }
   }  
   
-
 
   return(all_results)
   

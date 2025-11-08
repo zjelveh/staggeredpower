@@ -18,26 +18,27 @@ run_power_analysis <- function(data_clean,
                                treat_ind_var,
                                controls=NULL,
                                outcome,
+                               transform_outcome=NULL,
                                pta_type,
                                enforce_type=NULL,
                                percent_effect,
                                models_to_run=c('cs', 'imputation', 'twfe'),
                                n_sims = 100) {
-  
 
-  generate_key <- function(analysis_level, pta_type, enforce_type, outcome, controls, percent_effect, run_iteration) {
-    enforce_type = ifelse(length(enforce_type)==0, 'no_controls', paste0(enforce_type, collapse='*'))
-    controls = ifelse(length(controls)==0, 'no_controls', paste0(controls, collapse='*'))
-    return(paste(analysis_level, pta_type, enforce_type, outcome, controls, percent_effect, run_iteration, sep='__', collapse = "__"))
-  }
+  units_to_drop = c()
+  rerun_with_dropped_units = FALSE
+
+  nrow_full = nrow(data_clean)
   
+  continue = FALSE
+  data_clean_full = data_clean[between(year, 1995, 2019)]
+  data_clean_copy = copy(data_clean_full)
   
-  groups_to_drop = c()
-  rerun_with_dropped_groups = FALSE
-  
-  # PTA Violation Check (run once before the simulation loop)
-  pta_enforced = enforce_PTA(
-    data_clean[between(year, 1995, 2019)],
+  data_clean_copy[, uq_row:=paste(get(unit_var), get(time_var))]
+  uq_rows = copy(data_clean_copy$uq_row)
+  row_numbers = 1:nrow(data_clean_copy)
+  pta_enforced_orig = enforce_PTA(
+    data_clean_copy,
     unit = unit_var,
     group = group_var,
     time = time_var,
@@ -46,214 +47,215 @@ run_power_analysis <- function(data_clean,
     pta_type = pta_type,
     enforce_type = enforce_type)
 
-  pta_violations = copy(pta_enforced[bound_error == 1 | (na_error == 1 & get(time_var) < 2019)])
+    
+  if(is.null(transform_outcome)){
+      pta_enforced_orig[, bound_error:= ifelse(counterfactual<0, 1, 0)]
+      pta_enforced_orig[bound_error==1, counterfactual:=0]
+      pta_enforced_orig[, na_error:=ifelse(is.na(counterfactual), 1, 0)]
 
-  if (nrow(pta_violations) > 0) {
-    groups_to_drop = unique(pta_violations[[group_var]])
-    rerun_with_dropped_groups = FALSE  # Mark for rerun with dropped groups
-    cat("PTA violations detected. Groups to drop:", paste(sort(groups_to_drop), collapse = ", "), "\n")
+      while(!continue){
+        # PTA Violation Check (run once before the simulation loop)
+        pta_enforced = enforce_PTA(
+          data_clean_copy,
+          unit = unit_var,
+          group = group_var,
+          time = time_var,
+          rel_pass_var = rel_pass_var,
+          outcome = outcome,
+          pta_type = pta_type,
+          enforce_type = enforce_type)
+        
+        pta_enforced[, bound_error:= ifelse(counterfactual<0, 1, 0)]
+        pta_enforced[bound_error==1, counterfactual:=0]
+        pta_enforced[, na_error:=ifelse(is.na(counterfactual), 1, 0)]
+        
+
+        pta_violations = copy(pta_enforced[bound_error == 1 | (na_error == 1 & get(time_var) < 2019)])
+        
+        if(nrow(pta_violations)==0){
+          continue=TRUE
+        } else{
+          data_clean_copy = data_clean_copy[!get(unit_var)%in%pta_violations[[unit_var]]]
+          
+          units_to_drop = sort(c(units_to_drop, unique(pta_violations[[unit_var]])))
+        }
+        if(nrow(data_clean_copy)==0){
+          continue=TRUE
+        }
+      }
+      
+    
   }
+
+  share_rows_dropped = 1 - (nrow(data_clean_copy) / nrow(data_clean_full))
+  share_units_dropped = 1 - (length(unique(data_clean_copy[[unit_var]])) / 
+                               length(unique(data_clean_full[[unit_var]])))
+  share_groups_dropped = 1 - (length(unique(data_clean_copy[[group_var]])) / 
+                               length(unique(data_clean_full[[group_var]])))
   
+  # N treated groups
+  n_treated_groups = length(unique(data_clean_copy[get(treat_ind_var)==1][[group_var]]))
+  
+  if(n_treated_groups >= 4 & is.null(transform_outcome)){
+    rerun_with_dropped_units = TRUE  # Mark for rerun with dropped groups
+  }
+
+
+  pta_enforced_orig[, dropped:=ifelse(uq_row%in%data_clean_copy$uq_row, 0, 1)]
+  
+  cat("Num rows original", nrow(data_clean_full), '\n')
+  cat("Num rows final", nrow(data_clean_copy), '\n')
+  cat('number of pta violations orig', sum(pta_enforced_orig$bound_error), '\n')
+  cat('number of pta violations after', sum(pta_enforced_orig$dropped), '\n')
+  cat('number of pta violations while', nrow(data_clean_full) - nrow(data_clean_copy), '\n')
+  
+
   final_power_list = list()
   final_vio_list = list()
+
   
   # Loop for two passes: first without dropping groups, then with (if violations exist)
-  for (run_iteration in 1:(ifelse(rerun_with_dropped_groups, 2, 1))) {
-    key = generate_key(unit_var, pta_type, enforce_type, outcome,
-                       controls, percent_effect, run_iteration)
+  for (run_iteration in 1:1){#:(ifelse(rerun_with_dropped_units, 2, 1))) {
+    dat_clean = if (run_iteration == 1) data_clean_full else data_clean_copy
+    dat_clean = dat_clean[!is.na(get(outcome))]
     
-    # Only run if groups_to_drop is less than 50% of all groups
-    if(rerun_with_dropped_groups){
-      share_dropped = length(groups_to_drop)/length(unique(data_clean[[group_var]]))
-    } else{
-      share_dropped = 0
-    }
-
-    if(share_dropped < .5 | run_iteration==1){
-      dat_clean = if (run_iteration == 1) data_clean else data_clean[!get(group_var) %in% groups_to_drop]
-      
-      rez_list = 
-        foreach(sim = 1:n_sims,
-                .packages = c('data.table', 'fixest', 'did2s', 
-                              'did', 'didimputation')) %dopar% 
-        {
-          new_temp = list()
-          
-          # Generate counterfactuals for each simulation
-          pta_enforced_sim = enforce_PTA(
-            dat_clean[between(year, 1995, 2019)],
-            unit = unit_var,
-            group = group_var,
-            time = time_var,
-            rel_pass_var = rel_pass_var,
-            outcome = outcome,
-            pta_type = pta_type,
-            enforce_type = enforce_type)
-
-
-          # Now scale the counterfactual outcomes within the simulation
-          counterfactual_data = copy(pta_enforced_sim)
-          counterfactual_data[, y_cf := counterfactual]
-          counterfactual_data[get(treat_ind_var) == 1, y_cf := y_cf * percent_effect]
-          
-          if (grepl('aggshare', outcome)) {
-            print('aggshare greater than 1')
-            counterfactual_data[, y_cf := ifelse(y_cf > 1, 1, y_cf)]
+    rez_list = 
+      foreach(sim = 1:n_sims,
+              .packages = c('data.table', 'fixest', 'did2s', 
+                            'did', 'didimputation')) %dopar% 
+      {
+        new_temp = list()
+        
+        # Generate counterfactuals for each simulation
+        pta_enforced_sim = enforce_PTA(
+          dat_clean,
+          unit = unit_var,
+          group = group_var,
+          time = time_var,
+          rel_pass_var = rel_pass_var,
+          outcome = outcome,
+          pta_type = pta_type,
+          enforce_type = enforce_type)
+        # Now scale the counterfactual outcomes within the simulation
+        counterfactual_data = copy(pta_enforced_sim)
+        counterfactual_data[, y_cf := counterfactual]
+        if(!is.null(transform_outcome)){
+          if(transform_outcome=='log'){
+            counterfactual_data[get(treat_ind_var) == 1, y_cf := y_cf + log(percent_effect)]
           }
-          
-          model_data = copy(counterfactual_data)
-          
-          
-          if(sum(model_data[[treat_ind_var]])>0){
-            # Further steps for computing empirical treatment effects and saving results...
-            te_computed = compute_te(df = model_data,
-                                     pta_type=pta_type,
-                                     enforce_type=enforce_type,
-                                     outcome = 'y_cf',
-                                     group_var = group_var,
-                                     time_var = time_var,
-                                     rel_pass_var = rel_pass_var)
-            
-            te_computed = rbindlist(te_computed)
-            te_computed = te_computed[!is.na(te)]
-            
-            # Model estimation
-            results = estimate_models(
-              data = model_data,
-              id_var = unit_var,
-              outcome_var = 'y_cf',
-              time_var = time_var,
-              group_var = group_var,
-              controls = controls,
-              treat_ind_var = treat_ind_var,
-              models_to_run = models_to_run)
-            
-            # get weights
-            did_weights = data.table(results$cs$agg$DIDparams$data)
-            did_weights = did_weights[get(time_var)==min(get(time_var))]
-            did_weights = did_weights[, .(group_share=.N / nrow(did_weights)), by=group_var]
-            te_computed = merge(te_computed, did_weights, by.x='group', by.y=group_var)
-            empirical_te = sum(te_computed$te * te_computed$group_share) / sum(te_computed$group_share)
-            te_computed[, group:=as.numeric(group)]
-            te_computed[, time:=as.numeric(time)]
+        } else{
+          counterfactual_data[get(treat_ind_var) == 1, y_cf := y_cf * percent_effect]
+        }
+        
+        model_data = copy(counterfactual_data)
 
-            # drop groups
+        if(sum(model_data[[treat_ind_var]])>0){
+          # Model estimation
+          results = estimate_models(
+            data = model_data,
+            id_var = unit_var,
+            outcome_var = 'y_cf',
+            time_var = time_var,
+            group_var = group_var,
+            controls = controls,
+            treat_ind_var = treat_ind_var,
+            models_to_run = models_to_run)
+          # drop groups
+          if(is.null(transform_outcome)){
             drop_groups = unique(pta_violations[[group_var]])
             
-            for(model in names(results)){
-              if(model=='imputation'){
-                att = results[[model]]$agg$estimate
-                se =  results[[model]]$agg$std.error
-              }
-              
-              if(model=='cs'){
-                att = results[[model]]$agg$overall.att
-                se =  results[[model]]$agg$overall.se
-              }
-              
-              if(model=='cs_reg'){
-                att = results[[model]]$agg$overall.att
-                se =  results[[model]]$agg$overall.se
-              }
-              
-              
-              if(model%in%c('sa', 'twfe')){
-                att = results[[model]]$agg$coeftable[1, 1]
-                se =  results[[model]]$agg$coeftable[1, 2]
-              }
-              
+          } else{
+            drop_groups = c()
+          }
 
-             new_temp[[length(new_temp) + 1]] = data.table(
-                model=model,
-                level=unit_var,
-                outcome = outcome,
-                percent_effect = percent_effect,
-                pta_type=pta_type,
-                enforce_type=ifelse(is.null(enforce_type), 'no_controls', paste0(enforce_type, collapse='*')),
-                controls = ifelse(is.null(controls), 'no_controls', paste0(controls, collapse='*')),
-                att = att,
-                se = se,
-                group_list_csa = paste0(results[['cs']]$agg$DIDparams$glist, collapse=' '),
-                ng_csa = results[['cs']]$agg$DIDparams$nG,
-                ng = length(unique(model_data[[group_var]])),
-                n = results[['cs']]$agg$DIDparams$n,
-                nT = results[['cs']]$agg$DIDparams$nT,
-                ss_csa = nrow(results$cs$agg$DIDparams$data),
-                ss = nrow(model_data[!is.na(y_cf)]),
-                y0_bar_csa = mean(data.table(results$cs$agg$DIDparams$data)[get(group_var)>get(time_var)]$y_cf, na.rm=T),
-                y0_bar = mean(model_data[!is.na(y_cf)][get(treat_ind_var)==0][[outcome]], na.rm=T),
-                sim = sim,
-                empirical_te = empirical_te,
-                iteration=run_iteration,
-                n_dropped_groups = length(groups_to_drop),
-                unique_key = key
-              )
+          for(model in names(results)){
+            if(model=='imputation'){
+              att = results[[model]]$agg$estimate
+              se =  results[[model]]$agg$std.error
+            }
+            
+            if(model=='cs'){
+              att = results[[model]]$agg$overall.att
+              se =  results[[model]]$agg$overall.se
+            }
+            
+            if(model=='cs_reg'){
+              att = results[[model]]$agg$overall.att
+              se =  results[[model]]$agg$overall.se
             }
             
             
-            returnz = list(results=rbindlist(new_temp))
+            if(model%in%c('sa', 'twfe')){
+              att = results[[model]]$agg$coeftable[1, 1]
+              se =  results[[model]]$agg$coeftable[1, 2]
+            }
 
-          } else{
-            
             new_temp[[length(new_temp) + 1]] = data.table(
-              model=NA,
-              level=unit_var,
+              model = model,
+              level = unit_var,
               outcome = outcome,
               percent_effect = percent_effect,
-              pta_type=pta_type,
-              enforce_type=ifelse(is.null(enforce_type), 'no_controls', paste0(enforce_type, collapse='*')),
+              pta_type =pta_type,
+              enforce_type = ifelse(is.null(enforce_type), 'no_controls', paste0(enforce_type, collapse='*')),
               controls = ifelse(is.null(controls), 'no_controls', paste0(controls, collapse='*')),
-              att = NA,
-              se = NA,
-              group_list_csa = NA,
-              ng_csa = NA,
-              ng = length(unique(model_data[[group_var]])),
-              n = NA,
-              nT = NA,
-              ss_csa = NA,
-              ss = nrow(model_data[!is.na(y_cf)]),
-              y0_bar_csa = NA,
+              att = att,
+              se = se,
+              dropped_unit_list = paste0(units_to_drop, collapse=' '),
+              y0_bar_csa = mean(data.table(results$cs$agg$DIDparams$data)[get(group_var)>get(time_var)]$y_cf, na.rm=T),
               y0_bar = mean(model_data[!is.na(y_cf)][get(treat_ind_var)==0][[outcome]], na.rm=T),
               sim = sim,
-              empirical_te = NA,
-              iteration=run_iteration,
-              n_dropped_groups = length(groups_to_drop),
-              unique_key = key
+              iteration = run_iteration,
+              n_dropped_units = length(units_to_drop),
+              share_rows_dropped = share_rows_dropped,
+              share_units_dropped = share_units_dropped,
+              share_groups_dropped = share_groups_dropped,
+              outcome_transformed = ifelse(is.null(transform_outcome), 'No', 'log')
             )
-            
-            returnz = list(results=rbindlist(new_temp))
-            
           }
           
-          return(returnz) 
-        }
-      
-      
-      # Inside the run_iteration loop, after foreach loop
-      for(i in rez_list) {
-        i$results[, unique_key := key]
-        final_power_list[[length(final_power_list)+1]] = i$results
+          returnz = list(results=rbindlist(new_temp))
+          
+        } 
+          
+        
+        return(returnz) 
       }
-      final_vio = copy(pta_enforced)
-      final_vio[, unique_key := key]
-      final_vio[, iteration:=run_iteration]
-      final_vio[, controls:= ifelse(is.null(controls), 'no_controls', paste0(controls, collapse='*'))]
-      final_vio[, enforce_type:= ifelse(is.null(enforce_type), 'no_controls', paste0(enforce_type, collapse='*'))]
-      final_vio = final_vio[, .(unique_key, iteration, counterfactual, bound_error,
-                                na_error,
-                                unit=get(unit_var), group=get(group_var), time=get(time_var), outcome,
-                                pta_type, controls, enforce_type)
-                                ]
-      final_vio_list[[length(final_vio_list) + 1]] = final_vio
+    
+
+    # Inside the run_iteration loop, after foreach loop
+    for(i in rez_list) {
+      final_power_list[[length(final_power_list)+1]] = i$results
     }
     
+    if(is.null(transform_outcome)){
+      final_vio = copy(pta_violations)
+      final_vio[, iteration:=run_iteration]
+      final_vio[, level:=unit_var]
+      final_vio[, n:=nrow(dat_clean)]
+      final_vio[, controls:= ifelse(is.null(controls), 'no_controls', paste0(controls, collapse='*'))]
+      final_vio[, enforce_type:= ifelse(is.null(enforce_type), 'no_controls', paste0(enforce_type, collapse='*'))]
+      final_vio = final_vio[, .(iteration, counterfactual, bound_error,
+                                na_error, level,
+                                unit=get(unit_var), 
+                                group=get(group_var),
+                                time=get(time_var), 
+                                outcome,
+                                pta_type, 
+                                controls, 
+                                enforce_type)
+      ]
+      final_vio_list[[length(final_vio_list) + 1]] = final_vio
+    }
+
   }
-  
-  
+
   final_power = rbindlist(final_power_list)
   
-  final_vio = rbindlist(final_vio_list)
-  
-  return(list(final_vio=final_vio, 
-              final_power=final_power))
+  if(is.null(transform_outcome)){
+    final_vio = rbindlist(final_vio_list)
+  } else{
+    final_vio = NA
+  }
+ return(list(final_vio=final_vio, 
+             final_power=final_power))
 }
