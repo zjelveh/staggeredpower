@@ -44,7 +44,7 @@ run_power_analysis <- function(data_clean,
     time = time_var,
     outcome = outcome,
     controls = controls,
-    method = toupper(pta_type))
+    method = ifelse(pta_type == "cs", "CS", pta_type))
 
     
   if(is.null(transform_outcome)){
@@ -61,7 +61,7 @@ run_power_analysis <- function(data_clean,
           time = time_var,
           outcome = outcome,
           controls = controls,
-          method = toupper(pta_type))
+          method = ifelse(pta_type == "cs", "CS", pta_type))
         
         pta_enforced[, bound_error:= ifelse(counterfactual<0, 1, 0)]
         pta_enforced[bound_error==1, counterfactual:=0]
@@ -132,7 +132,7 @@ run_power_analysis <- function(data_clean,
           time = time_var,
           outcome = outcome,
           controls = controls,
-          method = toupper(pta_type))
+          method = ifelse(pta_type == "cs", "CS", pta_type))
         # Now scale the counterfactual outcomes within the simulation
         counterfactual_data = copy(pta_enforced_sim)
         counterfactual_data[, y_cf := counterfactual]
