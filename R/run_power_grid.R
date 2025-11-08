@@ -20,6 +20,8 @@
 #'   Default: list(NULL)
 #' @param models_to_run Models to estimate (same as run_power_analysis). Default: c("cs", "imputation")
 #' @param n_sims Number of simulations per specification (same as run_power_analysis). Default: 100
+#' @param min_year Numeric. Minimum year for analysis (optional)
+#' @param max_year Numeric. Maximum year for analysis (optional)
 #' @param parallel Whether to use parallel processing. Default: FALSE
 #' @param n_cores Number of cores if parallel=TRUE. Default: NULL (uses all available - 1)
 #'
@@ -73,6 +75,8 @@ run_power_grid <- function(data_clean,
                           controls = list(NULL),
                           models_to_run = c("cs", "imputation"),
                           n_sims = 100,
+                          min_year = NULL,
+                          max_year = NULL,
                           parallel = FALSE,
                           n_cores = NULL) {
 
@@ -152,7 +156,9 @@ run_power_grid <- function(data_clean,
         transform_outcome = curr_transform,
         controls = curr_controls,
         models_to_run = models_to_run,
-        n_sims = n_sims
+        n_sims = n_sims,
+        min_year = min_year,
+        max_year = max_year
       )
 
       # Add specification identifiers to results
