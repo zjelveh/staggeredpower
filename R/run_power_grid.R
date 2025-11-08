@@ -10,7 +10,9 @@
 #' @param unit_var Unit identifier column name (same as run_power_analysis)
 #' @param group_var Treatment cohort column name (same as run_power_analysis)
 #' @param time_var Time variable column name (same as run_power_analysis)
-#' @param outcome Outcome variable column name (same as run_power_analysis)
+#' @param rel_pass_var Relative time to treatment column name (same as run_power_analysis)
+#' @param treat_ind_var Treatment indicator column name (same as run_power_analysis)
+#' @param outcome Character vector. Outcome variable column name(s). Can be single outcome or vector of multiple outcomes.
 #' @param pta_type Vector of PTA types to test. Default: c("cs", "imputation")
 #' @param enforce_type List of enforce_type specifications. Each element can be NULL or character vector of controls.
 #'   Default: list(NULL)
@@ -25,11 +27,16 @@
 #' @param parallel Whether to use parallel processing. Default: FALSE
 #' @param n_cores Number of cores if parallel=TRUE. Default: NULL (uses all available - 1)
 #'
-#' @return A list with two components:
+#' @return A list with three components:
 #' \describe{
 #'   \item{final_power}{data.table with power analysis results for all specifications}
+#'   \item{power_summary}{data.table with summary statistics per specification}
 #'   \item{specifications}{data.table summarizing the grid of specifications run}
 #' }
+#'
+#' @details
+#' When multiple outcomes are provided, the function loops over each outcome,
+#' runs the full grid search, and combines results with an 'outcome' identifier column.
 #'
 #' @examples
 #' \dontrun{
@@ -39,9 +46,25 @@
 #'   unit_var = "state_fips",
 #'   group_var = "year_passed",
 #'   time_var = "year",
+#'   rel_pass_var = "rel_pass",
+#'   treat_ind_var = "law_pass",
 #'   outcome = "dv_rate",
 #'   pta_type = c("cs", "imputation"),
 #'   percent_effect = seq(0.05, 0.15, 0.05),
+#'   n_sims = 100
+#' )
+#'
+#' # With multiple outcomes
+#' results <- run_power_grid(
+#'   data_clean = my_data,
+#'   unit_var = "state_fips",
+#'   group_var = "year_passed",
+#'   time_var = "year",
+#'   rel_pass_var = "rel_pass",
+#'   treat_ind_var = "law_pass",
+#'   outcome = c("dv_rate", "dv_count", "dv_share"),
+#'   pta_type = "cs",
+#'   percent_effect = c(0.10, 0.15),
 #'   n_sims = 100
 #' )
 #'
@@ -51,6 +74,8 @@
 #'   unit_var = "state_fips",
 #'   group_var = "year_passed",
 #'   time_var = "year",
+#'   rel_pass_var = "rel_pass",
+#'   treat_ind_var = "law_pass",
 #'   outcome = "dv_rate",
 #'   controls = list(
 #'     NULL,
@@ -67,6 +92,8 @@ run_power_grid <- function(data_clean,
                           unit_var,
                           group_var,
                           time_var,
+                          rel_pass_var,
+                          treat_ind_var,
                           outcome,
                           pta_type = c("cs", "imputation"),
                           enforce_type = list(NULL),
@@ -82,6 +109,26 @@ run_power_grid <- function(data_clean,
 
   # Load required packages
   require(data.table)
+
+  # Ensure outcome is a character vector
+  if (!is.character(outcome)) {
+    stop("outcome must be a character vector of column names")
+  }
+
+  # Initialize results storage across outcomes
+  all_final_power <- list()
+  all_power_summary <- list()
+  all_specifications <- list()
+
+  # Loop over outcomes
+  for (outcome_var in outcome) {
+    cat(sprintf("\n=== Processing outcome: %s ===\n", outcome_var))
+
+    # Filter data to non-missing for this outcome
+    outcome_data <- data_clean[!is.na(get(outcome_var))]
+
+    cat(sprintf("Data filtered to %d rows (non-missing for %s)\n",
+                nrow(outcome_data), outcome_var))
 
   # Create grid of specifications
   # Handle NULL values in lists by converting to character "NULL"
@@ -112,6 +159,12 @@ run_power_grid <- function(data_clean,
 
   grid <- data.table(grid)
   grid[, spec_id := .I]
+
+  # Ensure all grid columns are character type (not factors or lists)
+  grid[, pta_type := as.character(pta_type)]
+  grid[, enforce_type := as.character(enforce_type)]
+  grid[, transform_outcome := as.character(transform_outcome)]
+  grid[, controls := as.character(controls)]
 
   cat(sprintf("Running %d specifications...\n", nrow(grid)))
 
@@ -145,11 +198,13 @@ run_power_grid <- function(data_clean,
     # Run power analysis
     tryCatch({
       result <- run_power_analysis(
-        data_clean = data_clean,
+        data_clean = outcome_data,
         unit_var = unit_var,
         group_var = group_var,
         time_var = time_var,
-        outcome = outcome,
+        rel_pass_var = rel_pass_var,
+        treat_ind_var = treat_ind_var,
+        outcome = outcome_var,
         pta_type = spec_row$pta_type,
         enforce_type = curr_enforce,
         percent_effect = spec_row$percent_effect,
@@ -198,11 +253,13 @@ run_power_grid <- function(data_clean,
     })
   }
 
-  # Combine results
+  # Combine results for this outcome
   results_combined <- rbindlist(results_list[!sapply(results_list, is.null)])
 
   # Merge with specification details
-  results_combined <- merge(results_combined, grid, by = "spec_id")
+  # Note: results already have pta_type, enforce_type, controls, percent_effect from run_power_analysis
+  # We don't need to merge those again, just add transform_outcome from grid
+  results_combined <- merge(results_combined, grid[, .(spec_id, transform_outcome)], by = "spec_id")
 
   # Calculate summary statistics
   power_summary <- results_combined[, .(
@@ -214,13 +271,35 @@ run_power_grid <- function(data_clean,
   ), by = .(spec_id, pta_type, enforce_type, percent_effect,
             transform_outcome, controls, model)]
 
-  cat("\nGrid search complete!\n")
+  cat(sprintf("\nGrid search complete for outcome: %s!\n", outcome_var))
   cat(sprintf("Successfully ran %d specifications\n",
               length(unique(results_combined$spec_id))))
 
+  # Add outcome identifier to results
+  results_combined[, outcome := outcome_var]
+  power_summary[, outcome := outcome_var]
+  grid_copy <- copy(grid)
+  grid_copy[, outcome := outcome_var]
+
+  # Store results
+  all_final_power[[outcome_var]] <- results_combined
+  all_power_summary[[outcome_var]] <- power_summary
+  all_specifications[[outcome_var]] <- grid_copy
+
+  } # End outcome loop
+
+  # Combine results across outcomes
+  final_power_combined <- rbindlist(all_final_power, use.names = TRUE, fill = TRUE)
+  power_summary_combined <- rbindlist(all_power_summary, use.names = TRUE, fill = TRUE)
+  specifications_combined <- rbindlist(all_specifications, use.names = TRUE, fill = TRUE)
+
+  cat("\n=== ALL OUTCOMES COMPLETE ===\n")
+  cat(sprintf("Processed %d outcome(s): %s\n",
+              length(outcome), paste(outcome, collapse = ", ")))
+
   return(list(
-    final_power = results_combined,
-    power_summary = power_summary,
-    specifications = grid
+    final_power = final_power_combined,
+    power_summary = power_summary_combined,
+    specifications = specifications_combined
   ))
 }
