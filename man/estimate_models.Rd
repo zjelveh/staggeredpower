@@ -8,9 +8,12 @@ estimate_models(
   data,
   id_var,
   outcome_var,
-  arrest_law_type,
-  use_controls,
+  time_var,
+  group_var,
+  controls,
   models_to_run,
+  cluster_var = "state",
+  treat_ind_var = "law_pass",
   event_study = FALSE
 )
 }
@@ -21,9 +24,7 @@ estimate_models(
 
 \item{outcome_var}{Outcome variable}
 
-\item{arrest_law_type}{Type of law}
-
-\item{use_controls}{Whether to include controls}
+\item{controls}{Whether to include controls}
 
 \item{models_to_run}{Vector of models to estimate}
 

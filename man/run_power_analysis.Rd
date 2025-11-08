@@ -6,32 +6,35 @@
 \usage{
 run_power_analysis(
   data_clean,
-  analysis_level,
-  period,
-  cohort,
+  unit_var,
+  group_var,
+  time_var,
+  rel_pass_var,
+  treat_ind_var,
+  controls = NULL,
   outcome,
-  use_controls,
+  transform_outcome = NULL,
+  pta_type,
+  enforce_type = NULL,
   percent_effect,
-  enforce_type,
+  models_to_run = c("cs", "imputation", "twfe"),
   n_sims = 100
 )
 }
 \arguments{
 \item{data_clean}{Clean panel dataset}
 
-\item{analysis_level}{Level of analysis (state or county)}
+\item{unit_var}{Level of analysis (state or county)}
 
-\item{period}{Pre-period type}
-
-\item{cohort}{Control group definition}
+\item{controls}{list of controls}
 
 \item{outcome}{Outcome variable}
 
-\item{use_controls}{Whether to use controls}
-
-\item{percent_effect}{Effect size to simulate}
+\item{pta_type}{Which pta assumption ("cs" or "imputation")}
 
 \item{enforce_type}{Method for enforcing parallel trends}
+
+\item{percent_effect}{Effect size to simulate}
 
 \item{n_sims}{Number of simulations}
 }

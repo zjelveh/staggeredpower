@@ -9,15 +9,14 @@ store_results(
   data,
   aggregate_results,
   event_study_results,
-  period,
-  cohort,
-  model,
+  pta_type,
+  enforce_type,
   analysis_level,
   outcome,
-  arrest_law_type,
   use_controls,
   drop_add_states,
-  result_type
+  result_type,
+  transform_outcome
 )
 }
 \arguments{
@@ -29,23 +28,21 @@ store_results(
 
 \item{event_study_results}{Event study results}
 
-\item{period}{Period type}
+\item{pta_type}{Pta type}
 
-\item{cohort}{Control group}
-
-\item{model}{Model type}
+\item{enforce_type}{Enforce type}
 
 \item{analysis_level}{Analysis level}
 
 \item{outcome}{Outcome variable}
-
-\item{arrest_law_type}{Law type}
 
 \item{use_controls}{Control usage}
 
 \item{drop_add_states}{State dropping}
 
 \item{result_type}{Result type}
+
+\item{model}{Model type}
 }
 \description{
 Store Power Analysis Results

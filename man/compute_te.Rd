@@ -4,22 +4,30 @@
 \alias{compute_te}
 \title{Compute Treatment Effects}
 \usage{
-compute_te(df, period, cohort, group, time, max_year = NULL, outcome)
+compute_te(
+  df,
+  pta_type,
+  enforce_type,
+  group_var,
+  time_var,
+  rel_pass_var,
+  outcome
+)
 }
 \arguments{
 \item{df}{Dataset}
 
-\item{period}{Pre-period type}
+\item{pta_type}{Which pta assumption ("cs" or "imputation")}
 
-\item{cohort}{Control group type}
+\item{enforce_type}{Method for enforcing parallel trends}
 
-\item{group}{Group variable}
+\item{time_var}{time_var variable}
 
-\item{time}{Time variable}
-
-\item{max_year}{Maximum year}
+\item{rel_pass_var}{rel_pass_var variable}
 
 \item{outcome}{Outcome variable}
+
+\item{group}{Group variable}
 }
 \description{
 Compute Treatment Effects

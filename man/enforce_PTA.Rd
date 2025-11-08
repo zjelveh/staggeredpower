@@ -6,19 +6,13 @@
 \usage{
 enforce_PTA(
   df,
-  unit = "county_name",
-  group = "year_passed",
-  time = "year",
-  rel_pass = "rel_pass",
-  outcome = NULL,
-  max_year = NULL,
-  period = NULL,
-  cohort = NULL,
-  enforce_type = "simple",
-  rho_hat,
-  sd_resid,
-  time_fe,
-  unit_fe
+  unit,
+  group,
+  time,
+  outcome,
+  controls = NULL,
+  method = c("imputation", "CS"),
+  seed = NULL
 )
 }
 \arguments{
@@ -30,25 +24,13 @@ enforce_PTA(
 
 \item{time}{Character. Name of time column (e.g., 'year')}
 
-\item{rel_pass}{Character. Name of relative time column (e.g., 'rel_pass')}
-
 \item{outcome}{Character. Name of outcome column}
 
-\item{max_year}{Numeric. Maximum year to include in analysis}
+\item{controls}{Character vector. Names of control variables (default: NULL)}
 
-\item{period}{Character. Type of pre-period to use: 'pre_year' or 'pre_years'}
+\item{method}{Character. PTA enforcement method: 'imputation' or 'CS' (default: 'imputation')}
 
-\item{cohort}{Character. Control group definition: 'notyettreated' or 'lasttreated'}
-
-\item{enforce_type}{Character. Method for enforcing PTA: 'simple', 'realistic', or 'simple_correlated'}
-
-\item{rho_hat}{Numeric. AR(1) coefficient for realistic enforcement}
-
-\item{sd_resid}{Numeric. Residual standard deviation for realistic enforcement}
-
-\item{time_fe}{Data.frame. Time fixed effects}
-
-\item{unit_fe}{Data.frame. Unit fixed effects}
+\item{seed}{Numeric. Random seed for reproducibility (default: NULL)}
 }
 \value{
 A list containing:
