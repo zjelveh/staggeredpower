@@ -9,10 +9,10 @@
 #' @param unit Character. Name of unit identifier column (e.g., 'county_name')
 #' @param group Character. Name of treatment group column (e.g., 'year_passed')
 #' @param time Character. Name of time column (e.g., 'year')
-#' @param rel_pass_var Character. Name of relative time column (e.g., 'rel_pass')
-#' @param outcome Character. Name of outcome column 
-#' @param pta_type Character. Control assumption: 'cs' or 'imputation'
-#' @param enforce_type Character. Method for enforcing PTA: 'simple', 'realistic', or 'simple_correlated'
+#' @param outcome Character. Name of outcome column
+#' @param controls Character vector. Names of control variables (default: NULL)
+#' @param method Character. PTA enforcement method: 'imputation' or 'CS' (default: 'imputation')
+#' @param seed Numeric. Random seed for reproducibility (default: NULL)
 #'
 #' @return A list containing:
 #' \describe{
