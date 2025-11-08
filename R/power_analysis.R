@@ -1,14 +1,16 @@
 # R/power_analysis.R
 #' Run Power Analysis with Parallel Trends
-#' 
+#'
 #' @param data_clean Clean panel dataset
 #' @param unit_var Level of analysis (state or county)
-#' @param pta_type Which pta assumption ("cs" or "imputation") 
+#' @param pta_type Which pta assumption ("cs" or "imputation")
 #' @param enforce_type Method for enforcing parallel trends
 #' @param outcome Outcome variable
 #' @param controls list of controls
 #' @param percent_effect Effect size to simulate
 #' @param n_sims Number of simulations
+#' @param min_year Numeric. Minimum year to include (optional, default NULL = no minimum)
+#' @param max_year Numeric. Maximum year to include (optional, default NULL = no maximum)
 #' @export
 run_power_analysis <- function(data_clean,
                                unit_var,
@@ -23,15 +25,26 @@ run_power_analysis <- function(data_clean,
                                enforce_type=NULL,
                                percent_effect,
                                models_to_run=c('cs', 'imputation', 'twfe'),
-                               n_sims = 100) {
+                               n_sims = 100,
+                               min_year = NULL,
+                               max_year = NULL) {
 
   units_to_drop = c()
   rerun_with_dropped_units = FALSE
 
   nrow_full = nrow(data_clean)
-  
+
   continue = FALSE
-  data_clean_full = data_clean[between(year, 1995, 2019)]
+  # Filter by year range if specified
+  if (!is.null(min_year) && !is.null(max_year)) {
+    data_clean_full = data_clean[get(time_var) >= min_year & get(time_var) <= max_year]
+  } else if (!is.null(min_year)) {
+    data_clean_full = data_clean[get(time_var) >= min_year]
+  } else if (!is.null(max_year)) {
+    data_clean_full = data_clean[get(time_var) <= max_year]
+  } else {
+    data_clean_full = data_clean
+  }
   data_clean_copy = copy(data_clean_full)
   
   data_clean_copy[, uq_row:=paste(get(unit_var), get(time_var))]
@@ -66,9 +79,11 @@ run_power_analysis <- function(data_clean,
         pta_enforced[, bound_error:= ifelse(counterfactual<0, 1, 0)]
         pta_enforced[bound_error==1, counterfactual:=0]
         pta_enforced[, na_error:=ifelse(is.na(counterfactual), 1, 0)]
-        
 
-        pta_violations = copy(pta_enforced[bound_error == 1 | (na_error == 1 & get(time_var) < 2019)])
+
+        # Only filter by max_year if specified
+        max_year_check <- if (!is.null(max_year)) max_year else max(pta_enforced[[time_var]])
+        pta_violations = copy(pta_enforced[bound_error == 1 | (na_error == 1 & get(time_var) < max_year_check)])
         
         if(nrow(pta_violations)==0){
           continue=TRUE
