@@ -15,7 +15,7 @@ test_that("adapter base class creates valid structure", {
 
 test_that("adapter registry stores and retrieves adapters", {
   # Clear registry
-  .adapter_registry <<- new.env(parent = emptyenv())
+  clear_adapter_registry()
 
   test_adapter <- estimator_adapter(
     name = "test_model",
@@ -30,7 +30,7 @@ test_that("adapter registry stores and retrieves adapters", {
 })
 
 test_that("get_adapter throws error for unknown model", {
-  .adapter_registry <<- new.env(parent = emptyenv())
+  clear_adapter_registry()
   expect_error(
     get_adapter("nonexistent_model"),
     "No adapter registered for model: nonexistent_model"
@@ -38,7 +38,8 @@ test_that("get_adapter throws error for unknown model", {
 })
 
 test_that("list_adapters returns registered adapter names", {
-  .adapter_registry <<- new.env(parent = emptyenv())
+  # Clear registry
+  clear_adapter_registry()
 
   register_adapter(estimator_adapter("model1", function(...) NULL, function(x) x))
   register_adapter(estimator_adapter("model2", function(...) NULL, function(x) x))
