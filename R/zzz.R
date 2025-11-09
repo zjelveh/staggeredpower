@@ -1,0 +1,14 @@
+# R/zzz.R
+# Package initialization hooks
+
+.onLoad <- function(libname, pkgname) {
+  # Auto-register CS adapter if did package is available
+  if (requireNamespace("did", quietly = TRUE)) {
+    register_adapter(adapter_cs())
+  }
+
+  # Auto-register imputation adapter if didimputation package is available
+  if (requireNamespace("didimputation", quietly = TRUE)) {
+    register_adapter(adapter_imputation())
+  }
+}
