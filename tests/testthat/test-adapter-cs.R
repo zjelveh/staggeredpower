@@ -1,18 +1,38 @@
 # tests/testthat/test-adapter-cs.R
 library(data.table)
 
+# Helper function to generate realistic test data
+make_test_data <- function(n_units = 40, n_periods = 15, seed = 123) {
+  set.seed(seed)
+
+  # Create panel structure
+  test_data <- data.table(
+    state = rep(1:n_units, each = n_periods),
+    year = rep(2005:(2004 + n_periods), n_units)
+  )
+
+  # Assign treatment cohorts: 1/3 never treated, 1/3 treated in 2012, 1/3 treated in 2015
+  cohort_assignment <- rep(c(0, 2012, 2015), length.out = n_units)
+  test_data[, group := cohort_assignment[state]]
+
+  # Create treated indicator
+  test_data[, treated := as.integer(year >= group & group > 0)]
+
+  # Generate outcome with unit and time fixed effects plus treatment effect
+  test_data[, unit_fe := rnorm(1, mean = 50, sd = 10), by = state]
+  test_data[, time_fe := rnorm(1, mean = 0, sd = 2), by = year]
+  test_data[, outcome := unit_fe + time_fe + treated * 5 + rnorm(.N, mean = 0, sd = 3)]
+
+  # Add a covariate for control tests
+  test_data[, covariate1 := rnorm(.N)]
+
+  test_data
+}
+
 test_that("CS adapter translates parameters correctly", {
   skip_if_not_installed("did")
 
-  # Setup test data (minimal staggered DiD panel)
-  test_data <- data.table(
-    state = rep(1:10, each = 10),
-    year = rep(2010:2019, 10),
-    outcome = rnorm(100, mean = 50, sd = 10),
-    group = rep(c(0, 2015, 2017), length.out = 100),
-    treated = 0
-  )
-  test_data[year >= group & group > 0, treated := 1]
+  test_data <- make_test_data()
 
   adapter <- adapter_cs()
 
@@ -23,7 +43,7 @@ test_that("CS adapter translates parameters correctly", {
     time_var = "year",
     id_var = "state",
     group_var = "group",
-    controls = c("treated"),  # Minimal control
+    controls = c("covariate1"),
     cluster_var = "state",
     n_cores = 1
   )
@@ -36,15 +56,7 @@ test_that("CS adapter translates parameters correctly", {
 test_that("CS adapter extraction produces standard format", {
   skip_if_not_installed("did")
 
-  # Setup and fit
-  test_data <- data.table(
-    state = rep(1:10, each = 10),
-    year = rep(2010:2019, 10),
-    outcome = rnorm(100, mean = 50, sd = 10),
-    group = rep(c(0, 2015, 2017), length.out = 100),
-    treated = 0
-  )
-  test_data[year >= group & group > 0, treated := 1]
+  test_data <- make_test_data()
 
   adapter <- adapter_cs()
   raw_result <- adapter$fit(
@@ -77,14 +89,7 @@ test_that("CS adapter requires did package", {
 test_that("CS adapter handles event study results", {
   skip_if_not_installed("did")
 
-  test_data <- data.table(
-    state = rep(1:10, each = 10),
-    year = rep(2010:2019, 10),
-    outcome = rnorm(100, mean = 50, sd = 10),
-    group = rep(c(0, 2015, 2017), length.out = 100),
-    treated = 0
-  )
-  test_data[year >= group & group > 0, treated := 1]
+  test_data <- make_test_data()
 
   adapter <- adapter_cs()
   raw_result <- adapter$fit(
