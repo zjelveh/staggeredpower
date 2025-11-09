@@ -1,4 +1,15 @@
 # tests/testthat/test-adapter-base.R
+
+# Helper to restore default adapters after clearing
+restore_default_adapters <- function() {
+  if (requireNamespace("did", quietly = TRUE)) {
+    register_adapter(adapter_cs())
+  }
+  if (requireNamespace("didimputation", quietly = TRUE)) {
+    register_adapter(adapter_imputation())
+  }
+}
+
 test_that("adapter base class creates valid structure", {
   test_adapter <- estimator_adapter(
     name = "test",
@@ -27,6 +38,9 @@ test_that("adapter registry stores and retrieves adapters", {
   retrieved <- get_adapter("test_model")
 
   expect_equal(retrieved$name, "test_model")
+
+  # Restore defaults
+  restore_default_adapters()
 })
 
 test_that("get_adapter throws error for unknown model", {
@@ -35,6 +49,9 @@ test_that("get_adapter throws error for unknown model", {
     get_adapter("nonexistent_model"),
     "No adapter registered for model: nonexistent_model"
   )
+
+  # Restore defaults
+  restore_default_adapters()
 })
 
 test_that("list_adapters returns registered adapter names", {
@@ -46,4 +63,7 @@ test_that("list_adapters returns registered adapter names", {
 
   adapters <- list_adapters()
   expect_equal(sort(adapters), c("model1", "model2"))
+
+  # Restore defaults
+  restore_default_adapters()
 })
