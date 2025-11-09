@@ -231,6 +231,26 @@ run_power_analysis <- function(data_clean,
               se =  results[[model]]$agg$coeftable[1, 2]
             }
 
+            # Compute baseline as pre-period outcome for TREATED units only
+            # Different time periods for each method to match their estimation approach
+
+            # Get units that are ever treated
+            treated_units <- unique(model_data[get(treat_ind_var) == 1][[unit_var]])
+
+            # y0_bar_csa: Average of treated units at t = g-1 (period immediately before treatment)
+            # CSA uses the last pre-treatment period as baseline
+            y0_bar_csa <- mean(
+              model_data[get(unit_var) %in% treated_units & get(time_var) == get(group_var) - 1]$y_cf,
+              na.rm = TRUE
+            )
+
+            # y0_bar_imp: Average of treated units across ALL pre-treatment periods (t < g)
+            # Imputation uses all pre-periods to estimate fixed effects
+            y0_bar_imp <- mean(
+              model_data[get(unit_var) %in% treated_units & get(time_var) < get(group_var)]$y_cf,
+              na.rm = TRUE
+            )
+
             new_temp[[length(new_temp) + 1]] = data.table(
               model = model,
               level = unit_var,
@@ -242,7 +262,8 @@ run_power_analysis <- function(data_clean,
               att = att,
               se = se,
               dropped_unit_list = paste0(units_to_drop, collapse=' '),
-              y0_bar_csa = mean(data.table(results$cs$agg$DIDparams$data)[get(group_var)>get(time_var)]$y_cf, na.rm=T),
+              y0_bar_csa = y0_bar_csa,
+              y0_bar_imp = y0_bar_imp,
               y0_bar = mean(model_data[!is.na(y_cf)][get(treat_ind_var)==0][[outcome]], na.rm=T),
               sim = sim,
               iteration = run_iteration,

@@ -17,11 +17,21 @@ estimate_models <- function(data,
                             group_var,
                             controls,
                             models_to_run,
-                            cluster_var='state',
+                            cluster_var = NULL,
                             treat_ind_var='law_pass',
                             event_study = FALSE,
                             min_year = NULL,
-                            max_year = NULL) {
+                            max_year = NULL,
+                            n_cores = NULL) {
+  # Default cluster_var to id_var if not specified
+  if(is.null(cluster_var)) {
+    cluster_var <- id_var
+  }
+
+  # Default n_cores to all available - 1
+  if(is.null(n_cores)) {
+    n_cores <- max(1, parallel::detectCores() - 1)
+  }
   if(is.null(models_to_run)) {
     models_to_run = c('cs', 'imputation', 'sa', 'twfe')
   }
@@ -50,18 +60,18 @@ estimate_models <- function(data,
     }
     
     # Callaway Sant'Anna estimation
-    m_csa = att_gt(yname=outcome_var, 
-                   xformla=control_formula, 
-                   tname=time_var, 
+    m_csa = att_gt(yname=outcome_var,
+                   xformla=control_formula,
+                   tname=time_var,
                    idname=id_var,
                    data=analysis_data,
-                   allow_unbalanced_panel=FALSE, 
+                   allow_unbalanced_panel=FALSE,
                    gname=group_var,
-                   panel=TRUE, 
+                   panel=TRUE,
                    est_method='dr',
                    control_group='notyettreated',
                    clustervars=cluster_var,
-                   cores=30)
+                   cores=n_cores)
     agg_csa <- aggte(m_csa, type='simple', na.rm=T)
     all_results[['cs']][['agg']] = agg_csa
     
