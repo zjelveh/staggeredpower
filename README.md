@@ -33,41 +33,6 @@ stopCluster(cl)
 - You'll see a warning about missing parallel backend
 - Analysis with `n_sims = 100` could take hours instead of minutes
 
-**Performance tip:** The parallelization happens at the Monte Carlo simulation level (within each specification), NOT at the grid level. This is the most efficient approach.
-
-## Quick Start
-
-```r
-library(staggeredpower)
-library(doParallel)
-
-# 1. Set up parallel processing (REQUIRED!)
-cl <- makeCluster(detectCores() - 1)
-registerDoParallel(cl)
-
-# 2. Run power analysis
-results <- run_power_analysis(
-  data_clean = your_data,
-  unit_var = "state_fips",
-  group_var = "year_passed",
-  time_var = "year",
-  rel_pass_var = "rel_pass",
-  treat_ind_var = "law_pass",
-  outcome = "outcome_var",
-  pta_type = "cs",
-  percent_effect = 0.10,
-  n_sims = 100
-)
-
-# 3. Calculate power
-power <- results$final_power[, .(
-  power = mean(abs(att/se) > 1.96)
-), by = model]
-print(power)
-
-# 4. Clean up
-stopCluster(cl)
-```
 
 ## Usage
 
@@ -116,10 +81,10 @@ results <- run_power_analysis(
   pta_type = "cs",                # "cs" or "imputation"
 
   # Simulated effect size
-  percent_effect = 0.10,          # Simulate 10% effect
+  percent_effect = 0.10,          # Simulate 10% effect (this is a decline, new outcome is 10 percent of original outcome)
 
   # Number of simulations
-  n_sims = 100,                   # Monte Carlo iterations
+  n_sims = 100,                   # Num iterations per simulated treatment ffect
 
   # Optional: controls and estimators
   controls = c("unemp_rate"),
@@ -172,7 +137,7 @@ Power of 0.82 means 82% chance of detecting the effect at 5% significance level.
 
 Use `run_power_grid()` to test power across many parameter combinations.
 
-**When to use:** You want to explore how power changes across different effect sizes, PTA methods, or control specifications.
+**When to use:** You want to explore how power changes across different effect sizes, PTA methods, or control specifications. **We recommend this approach**
 
 **Example - Testing multiple effect sizes:**
 
@@ -223,41 +188,6 @@ grid_results <- run_power_grid(
 # Results contain all combinations
 # 3 control sets × 3 effect sizes = 9 specifications
 ```
-
-**Parallelization strategy:**
-
-```r
-library(doParallel)
-
-# Set up parallel backend for Monte Carlo simulations
-# This is where the real speedup happens!
-cl <- makeCluster(detectCores() - 1)
-registerDoParallel(cl)
-
-grid_results <- run_power_grid(
-  data_clean = data,
-  unit_var = "state_fips",
-  group_var = "year_passed",
-  time_var = "year",
-  rel_pass_var = "rel_pass",
-  treat_ind_var = "law_pass",
-  outcome = "dv_rate",
-  pta_type = c("cs", "imputation"),
-  percent_effect = seq(0.05, 0.30, 0.05),
-  n_sims = 100,
-
-  # Run grid specs SEQUENTIALLY (recommended)
-  # Parallelization happens at Monte Carlo sim level (via doParallel backend)
-  parallel = FALSE
-)
-
-stopCluster(cl)
-```
-
-**Why `parallel = FALSE`?**
-- Parallelization at the **Monte Carlo simulation level** (within each spec) provides the best speedup
-- Running grid in parallel would require `n_specs × n_cores` total cores (e.g., 100 specs × 50 cores = 5,000 cores!)
-- Sequential grid + parallel sims is much more efficient for typical hardware
 
 **Grid search output:**
 
@@ -314,91 +244,12 @@ print(violation_summary)
 
 **PTA violations:**
 
-The CS method may drop units that violate parallel trends (negative predicted outcomes). This is tracked in:
+The CS and Imp methods may drop units that violate parallel trends. This is tracked in:
 - `n_dropped_units`: How many units dropped per simulation
 - `share_units_dropped`: Proportion of sample dropped
 
 More violations → smaller effective sample → lower power.
 
-## Advanced Options
-
-**Using controls in PTA enforcement:**
-
-```r
-results <- run_power_analysis(
-  data_clean = data,
-  unit_var = "state_fips",
-  group_var = "year_passed",
-  time_var = "year",
-  rel_pass_var = "rel_pass",
-  treat_ind_var = "law_pass",
-  outcome = "dv_rate",
-  pta_type = "cs",
-  enforce_type = c("unemp_rate"),  # Use controls when generating counterfactuals
-  controls = c("unemp_rate"),       # Also use in estimation
-  percent_effect = 0.10,
-  n_sims = 100
-)
-```
-
-**Log-transforming outcomes:**
-
-```r
-results <- run_power_analysis(
-  data_clean = data,
-  unit_var = "state_fips",
-  group_var = "year_passed",
-  time_var = "year",
-  rel_pass_var = "rel_pass",
-  treat_ind_var = "law_pass",
-  outcome = "dv_rate",
-  transform_outcome = "log",  # Log transform before analysis
-  pta_type = "cs",
-  percent_effect = 0.10,
-  n_sims = 100
-)
-```
-
-## Typical Workflow
-
-```r
-# 1. Quick check with single specification
-quick_check <- run_power_analysis(
-  data_clean = data,
-  unit_var = "state_fips",
-  group_var = "year_passed",
-  time_var = "year",
-  rel_pass_var = "rel_pass",
-  treat_ind_var = "law_pass",
-  outcome = "dv_rate",
-  pta_type = "cs",
-  percent_effect = 0.10,
-  n_sims = 50  # Fewer sims for quick check
-)
-
-# Verify it runs without errors
-print(quick_check$final_power[, .(mean(att), mean(se))])
-
-# 2. Run full grid search
-full_results <- run_power_grid(
-  data_clean = data,
-  unit_var = "state_fips",
-  group_var = "year_passed",
-  time_var = "year",
-  rel_pass_var = "rel_pass",
-  treat_ind_var = "law_pass",
-  outcome = "dv_rate",
-  pta_type = c("cs", "imputation"),
-  percent_effect = seq(0.05, 0.30, 0.05),
-  controls = list(NULL, c("unemp_rate")),
-  n_sims = 500,  # More sims for final results
-  parallel = TRUE
-)
-
-# 3. Analyze and export results
-power_summary <- full_results$power_summary
-fwrite(power_summary, "power_analysis_results.csv")
-```
 
 ## Examples
 
@@ -407,13 +258,6 @@ The `examples/` directory contains complete workflows demonstrating real-world u
 ### Large-Scale Analysis (`examples/large_scale_analysis.R`)
 
 This example shows how to run power analysis at scale across multiple outcomes and configurations:
-
-**Key features:**
-- Process multiple outcomes in a single `run_power_grid()` call
-- Use YAML configuration for reproducible grid searches
-- Configure year ranges (e.g., 1995-2019) instead of hardcoded values
-- Save results to SQLite database for later analysis
-- Handle parallel processing for faster computation
 
 **Quick start:**
 
@@ -445,16 +289,3 @@ dbDisconnect(db)
 
 The example is extensively commented and can be adapted to your specific use case.
 
-## Citation
-
-If you use this package, please cite:
-
-[Your paper citation]
-
-## License
-
-MIT License
-
-## Contact
-
-Zubin Jelveh - zjelveh@umd.edu
