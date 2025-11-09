@@ -146,12 +146,18 @@ run_power_analysis <- function(data_clean,
 
 
   pta_enforced_orig[, dropped:=ifelse(uq_row%in%data_clean_copy$uq_row, 0, 1)]
-  
-  cat("Num rows original", nrow(data_clean_full), '\n')
-  cat("Num rows final", nrow(data_clean_copy), '\n')
-  cat('number of pta violations orig', sum(pta_enforced_orig$bound_error), '\n')
-  cat('number of pta violations after', sum(pta_enforced_orig$dropped), '\n')
-  cat('number of pta violations while', nrow(data_clean_full) - nrow(data_clean_copy), '\n')
+
+  # Calculate statistics
+  n_units_dropped <- length(unique(data_clean_full[[unit_var]])) -
+                     length(unique(data_clean_copy[[unit_var]]))
+  n_violation_obs <- sum(pta_enforced_orig$bound_error)  # Individual observations with violations
+  n_rows_dropped <- nrow(data_clean_full) - nrow(data_clean_copy)  # Total rows dropped (all obs for violating units)
+
+  cat(sprintf("Dataset: %d rows (%d units) -> %d rows (%d units)\n",
+              nrow(data_clean_full), length(unique(data_clean_full[[unit_var]])),
+              nrow(data_clean_copy), length(unique(data_clean_copy[[unit_var]]))))
+  cat(sprintf("PTA violations: %d observations with violations -> %d units dropped -> %d total rows removed\n",
+              n_violation_obs, n_units_dropped, n_rows_dropped))
   
 
   final_power_list = list()
