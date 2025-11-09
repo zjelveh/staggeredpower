@@ -18,7 +18,9 @@ run_power_analysis(
   enforce_type = NULL,
   percent_effect,
   models_to_run = c("cs", "imputation", "twfe"),
-  n_sims = 100
+  n_sims = 100,
+  min_year = NULL,
+  max_year = NULL
 )
 }
 \arguments{
@@ -37,6 +39,10 @@ run_power_analysis(
 \item{percent_effect}{Effect size to simulate}
 
 \item{n_sims}{Number of simulations}
+
+\item{min_year}{Numeric. Minimum year to include (optional, default NULL = no minimum)}
+
+\item{max_year}{Numeric. Maximum year to include (optional, default NULL = no maximum)}
 }
 \description{
 Run Power Analysis with Parallel Trends

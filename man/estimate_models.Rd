@@ -12,9 +12,12 @@ estimate_models(
   group_var,
   controls,
   models_to_run,
-  cluster_var = "state",
+  cluster_var = NULL,
   treat_ind_var = "law_pass",
-  event_study = FALSE
+  event_study = FALSE,
+  min_year = NULL,
+  max_year = NULL,
+  n_cores = NULL
 )
 }
 \arguments{
@@ -29,6 +32,10 @@ estimate_models(
 \item{models_to_run}{Vector of models to estimate}
 
 \item{event_study}{Whether to run event study}
+
+\item{min_year}{Numeric. Minimum year to include (optional)}
+
+\item{max_year}{Numeric. Maximum year to include (optional)}
 }
 \description{
 Estimate Difference-in-Differences Models
