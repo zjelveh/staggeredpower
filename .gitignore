@@ -1,4 +1,11 @@
 .Rproj.user
 .ipynb_checkpoints
-.Rbuildignore
 *.Rproj
+*.tar.gz
+*.log
+*.sqlite
+test_*.R
+examples/test_*.R
+examples/*.sqlite
+examples/*.log
+examples/results/

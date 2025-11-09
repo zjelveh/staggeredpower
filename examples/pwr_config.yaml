@@ -1,0 +1,106 @@
+full_config:
+  transform_outcomes:
+    - null
+    - log
+  analysis_level: 
+    - state_fips
+#    - county_name
+  data_source:
+    - nibrs
+    - shr
+  use_controls:
+    - [unemp_rate, all_crimes_rate]
+    - [unemp_rate]
+    - null
+  models_to_run:
+    - cs
+    - imputation
+  n_sims:
+    100
+  sim_effects:
+    min:
+      .5
+    max:
+      1.5
+    skip:
+      0.05
+  enforce_pta:
+   - cs:
+ #    - [unemp_rate, all_crimes_rate]
+     - [unemp_rate]
+     - null
+   - imputation:
+     - null
+     - [unemp_rate]  
+
+     
+     
+outcomes:
+  shr:
+    sex:
+      male:
+          age:
+            18: 
+              rate: y_shr_male_18
+              count: adult_male_def1
+              population: population_male
+            1849:
+              rate: y_shr_male_1849
+              count: adult_male_def3
+              population: population_1849_male
+            dv1849: 
+              rate: y_shr_male_dv_1849
+              count: adult_male_new1
+              population: population_1849_male
+      female:
+          age:
+            18: 
+              rate: y_shr_female_18
+              count: adult_female_def1
+              population: population_female
+            1849:
+              rate: y_shr_female_1849
+              count: adult_female_def3
+              population: population_1849_female
+            dv1849: 
+              rate: y_shr_female_dv_1849
+              count: adult_female_new1
+              population: population_1849_female
+  nibrs:
+    sex:
+      male:
+          aggshare:
+            rate: y_nibrs_male_aggshare
+            numerator: agg_case_male_def1
+            denominator: 
+              - agg_case_male_def1
+              - sim_case_male_def1
+          agg:
+            rate: y_nibrs_male_agg_18
+            numerator: agg_case_male_def1 
+            denominator:
+              - population_male
+          sim:
+            rate: y_nibrs_male_sim_18
+            numerator: sim_case_male_def1 
+            denominator:
+              - population_male
+      female:
+          aggshare:
+            rate: y_nibrs_female_aggshare
+            numerator: agg_case_def1
+            denominator: 
+              - agg_case_def1
+              - sim_case_def1
+          agg:
+            rate: y_nibrs_female_agg_18
+            numerator: agg_case_def1 
+            denominator:
+              - population_female
+          sim:
+            rate: y_nibrs_female_sim_18
+            numerator: sim_case_def1 
+            denominator:
+              - population_female
+            
+

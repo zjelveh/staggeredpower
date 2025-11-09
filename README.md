@@ -9,12 +9,43 @@ Simulated power analysis for heterogeneity-robust difference-in-difference desig
 devtools::install_github("zjelveh/staggeredpower")
 ```
 
+## Important: Parallel Processing Setup
+
+**This package requires parallel processing setup for reasonable performance.** Monte Carlo simulations use the `foreach` package with `%dopar%`, which requires a registered parallel backend.
+
+### Required Setup (Do This First!)
+
+```r
+library(doParallel)
+
+# Register parallel backend BEFORE running power analysis
+cl <- makeCluster(detectCores() - 1)  # Use all cores except 1
+registerDoParallel(cl)
+
+# ... run your power analysis ...
+
+# Clean up when done
+stopCluster(cl)
+```
+
+**Without this setup:**
+- Functions will run SEQUENTIALLY (very slow)
+- You'll see a warning about missing parallel backend
+- Analysis with `n_sims = 100` could take hours instead of minutes
+
+**Performance tip:** The parallelization happens at the Monte Carlo simulation level (within each specification), NOT at the grid level. This is the most efficient approach.
+
 ## Quick Start
 
 ```r
 library(staggeredpower)
+library(doParallel)
 
-# Minimal example with your panel data
+# 1. Set up parallel processing (REQUIRED!)
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+
+# 2. Run power analysis
 results <- run_power_analysis(
   data_clean = your_data,
   unit_var = "state_fips",
@@ -28,11 +59,14 @@ results <- run_power_analysis(
   n_sims = 100
 )
 
-# Calculate power
+# 3. Calculate power
 power <- results$final_power[, .(
   power = mean(abs(att/se) > 1.96)
 ), by = model]
 print(power)
+
+# 4. Clean up
+stopCluster(cl)
 ```
 
 ## Usage
@@ -190,10 +224,16 @@ grid_results <- run_power_grid(
 # 3 control sets × 3 effect sizes = 9 specifications
 ```
 
-**Parallel processing:**
+**Parallelization strategy:**
 
 ```r
-# Much faster for large grids
+library(doParallel)
+
+# Set up parallel backend for Monte Carlo simulations
+# This is where the real speedup happens!
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+
 grid_results <- run_power_grid(
   data_clean = data,
   unit_var = "state_fips",
@@ -205,10 +245,19 @@ grid_results <- run_power_grid(
   pta_type = c("cs", "imputation"),
   percent_effect = seq(0.05, 0.30, 0.05),
   n_sims = 100,
-  parallel = TRUE,
-  n_cores = 10
+
+  # Run grid specs SEQUENTIALLY (recommended)
+  # Parallelization happens at Monte Carlo sim level (via doParallel backend)
+  parallel = FALSE
 )
+
+stopCluster(cl)
 ```
+
+**Why `parallel = FALSE`?**
+- Parallelization at the **Monte Carlo simulation level** (within each spec) provides the best speedup
+- Running grid in parallel would require `n_specs × n_cores` total cores (e.g., 100 specs × 50 cores = 5,000 cores!)
+- Sequential grid + parallel sims is much more efficient for typical hardware
 
 **Grid search output:**
 
@@ -350,6 +399,51 @@ full_results <- run_power_grid(
 power_summary <- full_results$power_summary
 fwrite(power_summary, "power_analysis_results.csv")
 ```
+
+## Examples
+
+The `examples/` directory contains complete workflows demonstrating real-world usage:
+
+### Large-Scale Analysis (`examples/large_scale_analysis.R`)
+
+This example shows how to run power analysis at scale across multiple outcomes and configurations:
+
+**Key features:**
+- Process multiple outcomes in a single `run_power_grid()` call
+- Use YAML configuration for reproducible grid searches
+- Configure year ranges (e.g., 1995-2019) instead of hardcoded values
+- Save results to SQLite database for later analysis
+- Handle parallel processing for faster computation
+
+**Quick start:**
+
+```r
+# 1. Navigate to examples directory
+setwd("path/to/staggeredpower/examples")
+
+# 2. Load your data (see example for data structure requirements)
+# source('your_data_loading_script.R')
+
+# 3. Review and customize pwr_config.yaml for your analysis
+
+# 4. Run the example
+source('large_scale_analysis.R')
+
+# 5. Query results from the SQLite database
+db <- dbConnect(SQLite(), "power_analysis_results.sqlite")
+results <- dbReadTable(db, "power_summary")
+dbDisconnect(db)
+```
+
+**What it demonstrates:**
+- Running grid search for multiple outcomes simultaneously (new feature!)
+- Configurable year filtering with `min_year` and `max_year` parameters
+- Config-driven parameter grids for reproducibility
+- Database storage for large-scale results
+- Retry logic for database writes
+- Result querying and visualization
+
+The example is extensively commented and can be adapted to your specific use case.
 
 ## Citation
 

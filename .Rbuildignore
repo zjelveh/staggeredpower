@@ -1,0 +1,9 @@
+^staggeredpower\.Rproj$
+^\.Rproj\.user$
+^examples/test.*\.R$
+^examples/.*\.log$
+^examples/.*\.sqlite$
+^examples/debug.*\.R$
+^examples/check_progress\.sh$
+^examples/results/
+^docs/plans/

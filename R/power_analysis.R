@@ -29,6 +29,35 @@ run_power_analysis <- function(data_clean,
                                min_year = NULL,
                                max_year = NULL) {
 
+  # Check if parallel backend is registered
+  # run_power_analysis uses %dopar% for Monte Carlo simulations
+  if (!requireNamespace("foreach", quietly = TRUE)) {
+    stop("Package 'foreach' is required but not installed. Please install it with: install.packages('foreach')")
+  }
+
+  n_workers <- foreach::getDoParWorkers()
+
+  if (n_workers == 1) {
+    warning(
+      "\n================================================================================\n",
+      "No parallel backend detected. Monte Carlo simulations will run SEQUENTIALLY.\n",
+      "This will be very slow for n_sims > 10.\n\n",
+      "For faster execution, register a parallel backend BEFORE calling this function:\n\n",
+      "  library(doParallel)\n",
+      "  cl <- makeCluster(detectCores() - 1)\n",
+      "  registerDoParallel(cl)\n",
+      "  # ... run your analysis ...\n",
+      "  stopCluster(cl)\n\n",
+      "See ?registerDoParallel for details.\n",
+      "================================================================================\n",
+      call. = FALSE,
+      immediate. = TRUE
+    )
+  } else {
+    cat(sprintf("Using %d cores for Monte Carlo simulations (%d total sims)\n",
+                n_workers, n_sims))
+  }
+
   units_to_drop = c()
   rerun_with_dropped_units = FALSE
 
