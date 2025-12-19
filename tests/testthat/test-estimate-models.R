@@ -1,4 +1,4 @@
-# tests/testthat/test-estimate-models-v2.R
+# tests/testthat/test-estimate-models.R
 library(data.table)
 
 # Helper function to generate realistic test data
@@ -29,13 +29,13 @@ make_test_data <- function(n_units = 40, n_periods = 15, seed = 123) {
   test_data
 }
 
-test_that("estimate_models_v2 dispatches to correct adapter", {
+test_that("estimate_models dispatches to correct adapter", {
   skip_if_not_installed("did")
 
   test_data <- make_test_data()
 
   # Run CS model
-  results <- estimate_models_v2(
+  results <- estimate_models(
     data = test_data,
     id_var = "state",
     outcome_var = "outcome",
@@ -49,13 +49,13 @@ test_that("estimate_models_v2 dispatches to correct adapter", {
   expect_s3_class(results$cs, "standard_estimate")
 })
 
-test_that("estimate_models_v2 runs multiple models", {
+test_that("estimate_models runs multiple models", {
   skip_if_not_installed("did")
   skip_if_not_installed("didimputation")
 
   test_data <- make_test_data()
 
-  results <- estimate_models_v2(
+  results <- estimate_models(
     data = test_data,
     id_var = "state",
     outcome_var = "outcome",
@@ -70,11 +70,11 @@ test_that("estimate_models_v2 runs multiple models", {
   expect_s3_class(results$imputation, "standard_estimate")
 })
 
-test_that("estimate_models_v2 throws error for unknown model", {
+test_that("estimate_models throws error for unknown model", {
   test_data <- make_test_data(n_units = 5, n_periods = 5)
 
   expect_error(
-    estimate_models_v2(
+    estimate_models(
       data = test_data,
       id_var = "state",
       outcome_var = "outcome",
@@ -86,13 +86,13 @@ test_that("estimate_models_v2 throws error for unknown model", {
   )
 })
 
-test_that("estimate_models_v2 passes controls correctly", {
+test_that("estimate_models passes controls correctly", {
   skip_if_not_installed("did")
 
   test_data <- make_test_data()
 
   # Should not throw error with controls (using CS which handles controls well)
-  results <- estimate_models_v2(
+  results <- estimate_models(
     data = test_data,
     id_var = "state",
     outcome_var = "outcome",
@@ -105,12 +105,12 @@ test_that("estimate_models_v2 passes controls correctly", {
   expect_s3_class(results$cs, "standard_estimate")
 })
 
-test_that("estimate_models_v2 handles event study requests", {
+test_that("estimate_models handles event study requests", {
   skip_if_not_installed("did")
 
   test_data <- make_test_data()
 
-  results <- estimate_models_v2(
+  results <- estimate_models(
     data = test_data,
     id_var = "state",
     outcome_var = "outcome",

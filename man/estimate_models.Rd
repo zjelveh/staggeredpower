@@ -2,7 +2,7 @@
 % Please edit documentation in R/estimate_models.R
 \name{estimate_models}
 \alias{estimate_models}
-\title{Estimate Difference-in-Differences Models}
+\title{Model-Agnostic DiD Estimation}
 \usage{
 estimate_models(
   data,
@@ -10,33 +10,59 @@ estimate_models(
   outcome_var,
   time_var,
   group_var,
-  controls,
-  models_to_run,
+  controls = NULL,
+  models_to_run = c("cs", "imputation"),
   cluster_var = NULL,
-  treat_ind_var = "law_pass",
+  n_cores = NULL,
   event_study = FALSE,
-  min_year = NULL,
-  max_year = NULL,
-  n_cores = NULL
+  weightsname = NULL,
+  ...
 )
 }
 \arguments{
-\item{data}{Panel dataset}
+\item{data}{data.table or data.frame. Panel data}
 
-\item{id_var}{Unit identifier variable}
+\item{id_var}{Character. Unit identifier variable name}
 
-\item{outcome_var}{Outcome variable}
+\item{outcome_var}{Character. Outcome variable name}
 
-\item{controls}{Whether to include controls}
+\item{time_var}{Character. Time variable name}
 
-\item{models_to_run}{Vector of models to estimate}
+\item{group_var}{Character. Treatment group/cohort variable name}
 
-\item{event_study}{Whether to run event study}
+\item{controls}{Character vector. Control variable names (default NULL)}
 
-\item{min_year}{Numeric. Minimum year to include (optional)}
+\item{models_to_run}{Character vector. Model names to estimate (must be registered)}
 
-\item{max_year}{Numeric. Maximum year to include (optional)}
+\item{cluster_var}{Character. Clustering variable (default: same as id_var)}
+
+\item{n_cores}{Integer. Number of cores for parallel estimation (default: detectCores()-1)}
+
+\item{event_study}{Logical. Compute event study estimates? (default FALSE)}
+
+\item{weightsname}{Character. Column name for observation weights (default NULL for unweighted)}
+
+\item{...}{Additional arguments passed to adapters}
+}
+\value{
+Named list of standard_estimate objects, one per model
 }
 \description{
-Estimate Difference-in-Differences Models
+Estimates difference-in-differences models using registered adapters.
+Uses the adapter pattern for clean separation between common parameters
+and package-specific translation.
+}
+\examples{
+\dontrun{
+results <- estimate_models(
+  data = my_data,
+  id_var = "state",
+  outcome_var = "y",
+  time_var = "year",
+  group_var = "cohort",
+  models_to_run = c("cs", "imputation")
+)
+results$cs$att  # Callaway-Sant'Anna ATT
+results$imputation$att  # Imputation ATT
+}
 }

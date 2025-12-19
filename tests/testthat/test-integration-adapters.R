@@ -23,7 +23,7 @@ test_that("adapters work with real NIBRS strangulation data", {
   }
 
   # Test CS adapter with real data
-  results_cs <- estimate_models_v2(
+  results_cs <- estimate_models(
     data = data,
     id_var = "state_fips",
     outcome_var = outcome_var,
@@ -40,7 +40,7 @@ test_that("adapters work with real NIBRS strangulation data", {
   expect_false(is.na(results_cs$cs$agg$att))
 
   # Test imputation adapter with real data
-  results_imp <- estimate_models_v2(
+  results_imp <- estimate_models(
     data = data,
     id_var = "state_fips",
     outcome_var = outcome_var,
@@ -57,7 +57,7 @@ test_that("adapters work with real NIBRS strangulation data", {
   expect_true(is.numeric(results_imp$imputation$agg$att))
 
   # Test both together
-  results_both <- estimate_models_v2(
+  results_both <- estimate_models(
     data = data,
     id_var = "state_fips",
     outcome_var = outcome_var,
@@ -92,7 +92,7 @@ test_that("adapters handle event studies with real data", {
   }
 
   # Request event study with real data
-  results <- estimate_models_v2(
+  results <- estimate_models(
     data = data,
     id_var = "state_fips",
     outcome_var = outcome_var,
@@ -130,7 +130,7 @@ test_that("adapters return valid standard_estimate objects", {
   }
 
   # Test that standard_estimate structure is correct
-  results <- estimate_models_v2(
+  results <- estimate_models(
     data = data,
     id_var = "state_fips",
     outcome_var = outcome_var,

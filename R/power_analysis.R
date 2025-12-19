@@ -14,7 +14,6 @@
 #' @param n_sims Number of simulations
 #' @param min_year Numeric. Minimum year to include (optional, default NULL = no minimum)
 #' @param max_year Numeric. Maximum year to include (optional, default NULL = no maximum)
-#' @param use_v2 Logical. Use estimate_models_v2() with adapter pattern? (default FALSE for backward compatibility)
 #' @export
 run_power_analysis <- function(data_clean,
                                unit_var,
@@ -28,11 +27,10 @@ run_power_analysis <- function(data_clean,
                                pta_type,
                                enforce_type=NULL,
                                percent_effect,
-                               models_to_run=c('cs', 'imputation', 'twfe'),
+                               models_to_run=c('cs', 'imputation'),
                                n_sims = 100,
                                min_year = NULL,
-                               max_year = NULL,
-                               use_v2 = FALSE) {
+                               max_year = NULL) {
 
   # Check if parallel backend is registered
   # run_power_analysis uses %dopar% for Monte Carlo simulations
@@ -210,32 +208,18 @@ run_power_analysis <- function(data_clean,
         model_data = copy(counterfactual_data)
 
         if(sum(model_data[[treat_ind_var]])>0){
-          # Model estimation
-          if (use_v2) {
-            # Use v2 adapter pattern
-            results = estimate_models_v2(
-              data = model_data,
-              id_var = unit_var,
-              outcome_var = 'y_cf',
-              time_var = time_var,
-              group_var = group_var,
-              controls = controls,
-              models_to_run = models_to_run,
-              cluster_var = unit_var,
-              n_cores = 1  # Already running in parallel across simulations
-            )
-          } else {
-            # Use original estimate_models
-            results = estimate_models(
-              data = model_data,
-              id_var = unit_var,
-              outcome_var = 'y_cf',
-              time_var = time_var,
-              group_var = group_var,
-              controls = controls,
-              treat_ind_var = treat_ind_var,
-              models_to_run = models_to_run)
-          }
+          # Model estimation using adapter pattern
+          results = estimate_models(
+            data = model_data,
+            id_var = unit_var,
+            outcome_var = 'y_cf',
+            time_var = time_var,
+            group_var = group_var,
+            controls = controls,
+            models_to_run = models_to_run,
+            cluster_var = unit_var,
+            n_cores = 1  # Already running in parallel across simulations
+          )
           # drop groups
           if(is.null(transform_outcome)){
             drop_groups = unique(pta_violations[[group_var]])
@@ -245,33 +229,9 @@ run_power_analysis <- function(data_clean,
           }
 
           for(model in names(results)){
-            if (use_v2) {
-              # Extract from standard_estimate format
-              att = results[[model]]$agg$att
-              se = results[[model]]$agg$se
-            } else {
-              # Extract from original format
-              if(model=='imputation'){
-                att = results[[model]]$agg$estimate
-                se =  results[[model]]$agg$std.error
-              }
-
-              if(model=='cs'){
-                att = results[[model]]$agg$overall.att
-                se =  results[[model]]$agg$overall.se
-              }
-
-              if(model=='cs_reg'){
-                att = results[[model]]$agg$overall.att
-                se =  results[[model]]$agg$overall.se
-              }
-
-
-              if(model%in%c('sa', 'twfe')){
-                att = results[[model]]$agg$coeftable[1, 1]
-                se =  results[[model]]$agg$coeftable[1, 2]
-              }
-            }
+            # Extract from standard_estimate format
+            att = results[[model]]$agg$att
+            se = results[[model]]$agg$se
 
             # Compute baseline as pre-period outcome for TREATED units only
             # Different time periods for each method to match their estimation approach
