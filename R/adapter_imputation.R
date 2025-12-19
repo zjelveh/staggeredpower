@@ -23,6 +23,7 @@ adapter_imputation <- function() {
                      controls = NULL,
                      cluster_var = NULL,
                      event_study = FALSE,
+                     weightsname = NULL,
                      ...) {
 
     # Default cluster to id_var
@@ -47,6 +48,7 @@ adapter_imputation <- function() {
       tname = time_var,
       idname = id_var,
       first_stage = first_stage_formula,
+      wname = weightsname,
       cluster_var = cluster_var,
       horizon = event_study,
       pretrends = if (event_study) -6:0 else FALSE

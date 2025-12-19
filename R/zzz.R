@@ -11,4 +11,9 @@
   if (requireNamespace("didimputation", quietly = TRUE)) {
     register_adapter(adapter_imputation())
   }
+
+  # Auto-register did2s adapter if did2s package is available
+  if (requireNamespace("did2s", quietly = TRUE)) {
+    register_adapter(adapter_did2s())
+  }
 }

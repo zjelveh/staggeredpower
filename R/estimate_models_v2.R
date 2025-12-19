@@ -15,6 +15,7 @@
 #' @param cluster_var Character. Clustering variable (default: same as id_var)
 #' @param n_cores Integer. Number of cores for parallel estimation (default: detectCores()-1)
 #' @param event_study Logical. Compute event study estimates? (default FALSE)
+#' @param weightsname Character. Column name for observation weights (default NULL for unweighted)
 #' @param ... Additional arguments passed to adapters
 #'
 #' @return Named list of standard_estimate objects, one per model
@@ -43,6 +44,7 @@ estimate_models_v2 <- function(data,
                                cluster_var = NULL,
                                n_cores = NULL,
                                event_study = FALSE,
+                               weightsname = NULL,
                                ...) {
 
   # Validate inputs
@@ -92,6 +94,7 @@ estimate_models_v2 <- function(data,
       cluster_var = cluster_var,
       n_cores = n_cores,
       event_study = event_study,
+      weightsname = weightsname,
       ...
     )
 

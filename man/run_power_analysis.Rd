@@ -20,7 +20,8 @@ run_power_analysis(
   models_to_run = c("cs", "imputation", "twfe"),
   n_sims = 100,
   min_year = NULL,
-  max_year = NULL
+  max_year = NULL,
+  use_v2 = FALSE
 )
 }
 \arguments{
@@ -31,6 +32,10 @@ run_power_analysis(
 \item{controls}{list of controls}
 
 \item{outcome}{Outcome variable}
+
+\item{transform_outcome}{Character. Outcome transformation: NULL (multiplicative effects, default),
+"log" (log transformation), or "ihs" (inverse hyperbolic sine). IHS recommended for outcomes
+with zeros (e.g., crime counts). When transformed, PTA violations are not checked.}
 
 \item{pta_type}{Which pta assumption ("cs" or "imputation")}
 
@@ -43,6 +48,8 @@ run_power_analysis(
 \item{min_year}{Numeric. Minimum year to include (optional, default NULL = no minimum)}
 
 \item{max_year}{Numeric. Maximum year to include (optional, default NULL = no maximum)}
+
+\item{use_v2}{Logical. Use estimate_models_v2() with adapter pattern? (default FALSE for backward compatibility)}
 }
 \description{
 Run Power Analysis with Parallel Trends

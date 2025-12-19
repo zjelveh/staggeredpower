@@ -24,6 +24,7 @@ adapter_cs <- function() {
                      cluster_var = NULL,
                      n_cores = NULL,
                      event_study = FALSE,
+                     weightsname = NULL,
                      ...) {
 
     # Default cluster to id_var
@@ -57,7 +58,8 @@ adapter_cs <- function() {
       est_method = "dr",
       clustervars = cluster_var,
       base_period = "varying",
-      print_details = FALSE
+      print_details = FALSE,
+      weightsname = weightsname
     )
 
     # Aggregate to overall ATT
