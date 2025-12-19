@@ -6,6 +6,9 @@
 #' @param pta_type Which pta assumption ("cs" or "imputation")
 #' @param enforce_type Method for enforcing parallel trends
 #' @param outcome Outcome variable
+#' @param transform_outcome Character. Outcome transformation: NULL (multiplicative effects, default),
+#'   "log" (log transformation), or "ihs" (inverse hyperbolic sine). IHS recommended for outcomes
+#'   with zeros (e.g., crime counts). When transformed, PTA violations are not checked.
 #' @param controls list of controls
 #' @param percent_effect Effect size to simulate
 #' @param n_sims Number of simulations
@@ -191,6 +194,14 @@ run_power_analysis <- function(data_clean,
         if(!is.null(transform_outcome)){
           if(transform_outcome=='log'){
             counterfactual_data[get(treat_ind_var) == 1, y_cf := y_cf + log(percent_effect)]
+          } else if(transform_outcome=='ihs'){
+            # Inverse Hyperbolic Sine (IHS) transformation
+            # asinh(x) = log(x + sqrt(x^2 + 1))
+            # For percent_effect representing multiplicative change (e.g., 1.1 = 10% increase),
+            # we apply: asinh(y * percent_effect) - asinh(y) ≈ asinh(percent_effect - 1) for large y
+            # But exact form: new_ihs = asinh(exp(asinh(y_cf)) * percent_effect)
+            counterfactual_data[get(treat_ind_var) == 1,
+                                y_cf := asinh(sinh(y_cf) * percent_effect)]
           }
         } else{
           counterfactual_data[get(treat_ind_var) == 1, y_cf := y_cf * percent_effect]
@@ -302,7 +313,7 @@ run_power_analysis <- function(data_clean,
               share_rows_dropped = share_rows_dropped,
               share_units_dropped = share_units_dropped,
               share_groups_dropped = share_groups_dropped,
-              outcome_transformed = ifelse(is.null(transform_outcome), 'No', 'log')
+              outcome_transformed = ifelse(is.null(transform_outcome), 'No', transform_outcome)
             )
           }
           
