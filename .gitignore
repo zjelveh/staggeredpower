@@ -9,3 +9,4 @@ examples/test_*.R
 examples/*.sqlite
 examples/*.log
 examples/results/
+.worktrees/
