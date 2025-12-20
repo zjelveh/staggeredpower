@@ -61,3 +61,67 @@ test_that("compute_pretrend_wald_test computes correct Wald statistic", {
   expect_true(abs(result$p_value - 0.0821) < 0.01)
   expect_false(result$reject_at_05)
 })
+
+test_that("run_vanilla_poisson_es returns correct structure", {
+  skip_if_not_installed("fixest")
+
+  # Create minimal test data
+  set.seed(123)
+  n_units <- 10
+  n_periods <- 10
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(2005, 2005, 2006, 2006, 2007, NA, NA, NA, NA, NA), each = n_periods),
+    y = rpois(n_units * n_periods, lambda = 5)
+  )
+
+  result <- run_vanilla_poisson_es(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    id_var = "unit_id",
+    group_var = "cohort",
+    cluster_var = "unit_id"
+  )
+
+  expect_type(result, "list")
+  expect_named(result, c("pre_coefs", "pre_vcov", "model", "method"))
+  expect_equal(result$method, "vanilla_poisson_event_study")
+  expect_true(inherits(result$model, "fixest"))
+
+  # pre_coefs and pre_vcov should have matching dimensions
+  expect_equal(length(result$pre_coefs), nrow(result$pre_vcov))
+  expect_equal(length(result$pre_coefs), ncol(result$pre_vcov))
+})
+
+test_that("run_vanilla_poisson_es extracts pre-treatment coefficients only", {
+  skip_if_not_installed("fixest")
+
+  # Create data with clear pre/post structure
+  set.seed(456)
+  n_units <- 20
+  n_periods <- 15
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(rep(2008, 10), rep(NA, 10)), each = n_periods),
+    y = rpois(n_units * n_periods, lambda = 3)
+  )
+
+  result <- run_vanilla_poisson_es(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    id_var = "unit_id",
+    group_var = "cohort",
+    cluster_var = "unit_id",
+    ref_period = -1
+  )
+
+  # All extracted coefficients should be for negative relative times
+  # (excluding reference period -1)
+  coef_names <- names(result$pre_coefs)
+  expect_true(all(grepl("::-[0-9]+$", coef_names)))
+  expect_false(any(grepl("::-1$", coef_names)))  # ref period excluded
+})

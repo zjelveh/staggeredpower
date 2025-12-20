@@ -84,3 +84,70 @@ compute_pretrend_wald_test <- function(pre_coefs, pre_vcov) {
     warning = NULL
   )
 }
+
+#' Run Vanilla Poisson Event Study for Pre-trend Testing
+#'
+#' Runs a standard Poisson fixed-effects event study to extract
+#' pre-treatment coefficients for testing multiplicative parallel trends.
+#' This is used for ETWFE Poisson models, which don't produce pre-treatment
+#' coefficients by design.
+#'
+#' @param data Data frame with panel data
+#' @param outcome_var Name of outcome variable (count)
+#' @param time_var Name of time variable
+#' @param id_var Name of unit identifier
+#' @param group_var Name of cohort/treatment timing variable
+#' @param cluster_var Name of clustering variable for SEs
+#' @param ref_period Reference period for event study (default -1)
+#' @param min_event Minimum event time to include (default -10)
+#' @param max_event Maximum event time to include (default 10)
+#'
+#' @return List with:
+#'   \item{pre_coefs}{Named vector of pre-treatment coefficients}
+#'   \item{pre_vcov}{Variance-covariance matrix for pre_coefs}
+#'   \item{model}{The fitted fixest model object}
+#'   \item{method}{String identifying the method used}
+#'
+#' @importFrom fixest fepois
+#' @importFrom data.table as.data.table
+#' @export
+run_vanilla_poisson_es <- function(data, outcome_var, time_var, id_var,
+                                    group_var, cluster_var, ref_period = -1,
+                                    min_event = -10, max_event = 10) {
+
+  dt <- data.table::as.data.table(data)
+
+  # Create relative time (NA for never-treated coded as large negative)
+  dt[, .rel_time := get(time_var) - get(group_var)]
+  dt[is.na(.rel_time), .rel_time := -9999]
+
+  # Trim to reasonable window
+  dt[, .rel_time_trim := pmin(pmax(.rel_time, min_event), max_event)]
+  dt[.rel_time == -9999, .rel_time_trim := -9999]
+
+  # Run Poisson FE event study
+  fml <- stats::as.formula(sprintf(
+    "%s ~ i(.rel_time_trim, ref = c(%d, -9999)) | %s + %s",
+    outcome_var, ref_period, id_var, time_var
+  ))
+
+  mod <- fixest::fepois(fml, data = dt,
+                        vcov = stats::as.formula(paste0("~", cluster_var)))
+
+  # Extract pre-treatment coefficients and vcov
+  coef_names <- names(stats::coef(mod))
+  pre_pattern <- "\\.rel_time_trim::-[0-9]+"
+  pre_terms <- grep(pre_pattern, coef_names, value = TRUE)
+  # Exclude reference period and never-treated indicator
+  pre_terms <- pre_terms[!grepl("-9999", pre_terms)]
+
+  pre_coefs <- stats::coef(mod)[pre_terms]
+  pre_vcov <- stats::vcov(mod)[pre_terms, pre_terms, drop = FALSE]
+
+  list(
+    pre_coefs = pre_coefs,
+    pre_vcov = pre_vcov,
+    model = mod,
+    method = "vanilla_poisson_event_study"
+  )
+}
