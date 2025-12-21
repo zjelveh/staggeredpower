@@ -151,3 +151,107 @@ run_vanilla_poisson_es <- function(data, outcome_var, time_var, id_var,
     method = "vanilla_poisson_event_study"
   )
 }
+
+#' Compare Stability of Additive vs Multiplicative Parallel Trends
+#'
+#' Computes the coefficient of variation (CV) for both level differences
+#' and ratios between early and late adopters in the pre-treatment period.
+#' Lower CV indicates more stable (more plausible) parallel trends.
+#'
+#' @param data Panel data
+#' @param outcome_var Name of outcome variable
+#' @param time_var Name of time variable
+#' @param group_var Name of cohort/treatment timing variable
+#' @param id_var Name of unit identifier
+#'
+#' @return List with:
+#'   \item{ratio_cv}{CV of ratios (multiplicative PT stability)}
+#'   \item{diff_cv}{CV of differences (additive PT stability)}
+#'   \item{recommendation}{"multiplicative" if ratio_cv < diff_cv, else "additive"}
+#'
+#' @details
+#' This diagnostic helps researchers understand whether additive or multiplicative
+#' parallel trends is more plausible for their data. It compares early vs late
+#' adopters (split at median cohort) in the pre-treatment period.
+#'
+#' @importFrom data.table as.data.table dcast fifelse
+#' @export
+compute_cv_comparison <- function(data, outcome_var, time_var, group_var, id_var) {
+
+  dt <- data.table::as.data.table(data)
+
+  # Identify early vs late adopters based on median cohort
+
+  cohorts <- dt[!is.na(get(group_var)), unique(get(group_var))]
+
+  if (length(cohorts) < 2) {
+    return(list(
+      ratio_cv = NA_real_,
+      diff_cv = NA_real_,
+      recommendation = NA_character_
+    ))
+  }
+
+  median_cohort <- stats::median(cohorts)
+
+  dt[, .group := data.table::fifelse(
+    !is.na(get(group_var)) & get(group_var) <= median_cohort,
+    "early", "late"
+  )]
+
+  # Focus on pre-treatment periods (before earliest treatment)
+  min_cohort <- min(cohorts, na.rm = TRUE)
+  pre_data <- dt[get(time_var) < min_cohort & .group %in% c("early", "late")]
+
+  if (nrow(pre_data) == 0) {
+    return(list(
+      ratio_cv = NA_real_,
+      diff_cv = NA_real_,
+      recommendation = NA_character_
+    ))
+  }
+
+  # Compute means by year and group
+  trends <- pre_data[, .(mean_y = mean(get(outcome_var), na.rm = TRUE)),
+                      by = c(time_var, ".group")]
+
+  trends_wide <- data.table::dcast(
+    trends,
+    stats::as.formula(paste(time_var, "~ .group")),
+    value.var = "mean_y"
+  )
+
+  # Need both groups present
+  if (!all(c("early", "late") %in% names(trends_wide))) {
+    return(list(
+      ratio_cv = NA_real_,
+      diff_cv = NA_real_,
+      recommendation = NA_character_
+    ))
+  }
+
+  trends_wide[, difference := early - late]
+  trends_wide[, ratio := early / late]
+
+  # Compute CVs (coefficient of variation = sd / |mean|)
+  diff_mean <- mean(trends_wide$difference, na.rm = TRUE)
+  diff_sd <- stats::sd(trends_wide$difference, na.rm = TRUE)
+  diff_cv <- if (abs(diff_mean) > 0) diff_sd / abs(diff_mean) else NA_real_
+
+  ratio_mean <- mean(trends_wide$ratio, na.rm = TRUE)
+  ratio_sd <- stats::sd(trends_wide$ratio, na.rm = TRUE)
+  ratio_cv <- if (ratio_mean > 0) ratio_sd / ratio_mean else NA_real_
+
+  # Recommendation
+  recommendation <- if (!is.na(ratio_cv) && !is.na(diff_cv)) {
+    if (ratio_cv < diff_cv) "multiplicative" else "additive"
+  } else {
+    NA_character_
+  }
+
+  list(
+    ratio_cv = ratio_cv,
+    diff_cv = diff_cv,
+    recommendation = recommendation
+  )
+}

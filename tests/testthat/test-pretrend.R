@@ -125,3 +125,87 @@ test_that("run_vanilla_poisson_es extracts pre-treatment coefficients only", {
   expect_true(all(grepl("::-[0-9]+$", coef_names)))
   expect_false(any(grepl("::-1$", coef_names)))  # ref period excluded
 })
+
+test_that("compute_cv_comparison returns correct structure", {
+  # Create test data where ratio is more stable than difference
+  set.seed(789)
+  test_data <- data.table::data.table(
+    unit_id = rep(1:20, each = 10),
+    year = rep(1990:1999, 20),
+    cohort = rep(c(rep(2005, 10), rep(2010, 10)), each = 10),
+    y = c(
+      # Early adopters: declining from 100 to 50
+      rep(seq(100, 50, length.out = 10), 10),
+      # Late adopters: declining from 50 to 25 (same 50% decline = stable ratio)
+      rep(seq(50, 25, length.out = 10), 10)
+    ) + rnorm(200, 0, 2)
+  )
+
+  result <- compute_cv_comparison(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    group_var = "cohort",
+    id_var = "unit_id"
+  )
+
+  expect_type(result, "list")
+  expect_named(result, c("ratio_cv", "diff_cv", "recommendation"))
+  expect_true(result$ratio_cv >= 0)
+  expect_true(result$diff_cv >= 0)
+  expect_true(result$recommendation %in% c("multiplicative", "additive"))
+})
+
+test_that("compute_cv_comparison recommends multiplicative when ratio more stable", {
+  # Construct data where ratio is constant but difference varies
+  test_data <- data.table::data.table(
+    unit_id = rep(1:20, each = 5),
+    year = rep(1995:1999, 20),
+    cohort = rep(c(rep(2005, 10), rep(2010, 10)), each = 5),
+    y = c(
+      # Early: 100, 80, 60, 40, 20
+      rep(c(100, 80, 60, 40, 20), 10),
+      # Late: 50, 40, 30, 20, 10 (ratio = 2 always, diff shrinks)
+      rep(c(50, 40, 30, 20, 10), 10)
+    )
+  )
+
+  result <- compute_cv_comparison(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    group_var = "cohort",
+    id_var = "unit_id"
+  )
+
+  # Ratio should be more stable (lower CV)
+  expect_true(result$ratio_cv < result$diff_cv)
+  expect_equal(result$recommendation, "multiplicative")
+})
+
+test_that("compute_cv_comparison recommends additive when difference more stable", {
+  # Construct data where difference is constant but ratio varies
+  test_data <- data.table::data.table(
+    unit_id = rep(1:20, each = 5),
+    year = rep(1995:1999, 20),
+    cohort = rep(c(rep(2005, 10), rep(2010, 10)), each = 5),
+    y = c(
+      # Early: 60, 70, 80, 90, 100
+      rep(c(60, 70, 80, 90, 100), 10),
+      # Late: 50, 60, 70, 80, 90 (diff = 10 always, ratio varies)
+      rep(c(50, 60, 70, 80, 90), 10)
+    )
+  )
+
+  result <- compute_cv_comparison(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    group_var = "cohort",
+    id_var = "unit_id"
+  )
+
+  # Difference should be more stable (lower CV)
+  expect_true(result$diff_cv < result$ratio_cv)
+  expect_equal(result$recommendation, "additive")
+})
