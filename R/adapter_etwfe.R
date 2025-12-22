@@ -56,6 +56,14 @@ adapter_etwfe <- function() {
       cluster_var <- id_var
     }
 
+    # Save original data before any modifications if pretrend testing is needed
+    # (vanilla Poisson ES and CV comparison expect NA for never-treated)
+    original_data <- if (pretrend_test) {
+      data.table::copy(data)
+    } else {
+      NULL
+    }
+
     # etwfe requires never-treated units to be coded as 0, not NA
     # Convert NA in group_var to 0
     if (any(is.na(data[[group_var]]))) {
@@ -314,9 +322,10 @@ adapter_etwfe <- function() {
                 "Running supplementary vanilla Poisson event study for pre-trend test.")
 
         # Run vanilla Poisson event study
+        # Use original_data which has NA for never-treated units
         vanilla_result <- tryCatch({
           run_vanilla_poisson_es(
-            data = data,
+            data = original_data,
             outcome_var = working_outcome,
             time_var = time_var,
             id_var = id_var,
@@ -339,10 +348,11 @@ adapter_etwfe <- function() {
         pt_result$method <- "vanilla_poisson_event_study"
 
         # Compute CV comparison for Poisson
+        # Use original_data (NA for never-treated) and working_outcome (count variable)
         cv_result <- tryCatch({
           compute_cv_comparison(
-            data = data,
-            outcome_var = outcome_var,
+            data = original_data,
+            outcome_var = working_outcome,
             time_var = time_var,
             group_var = group_var,
             id_var = id_var
