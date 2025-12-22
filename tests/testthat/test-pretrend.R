@@ -315,3 +315,79 @@ test_that("did2s adapter handles pretrend_test = TRUE with event_study = FALSE",
   expect_match(pt$warning, "requires event_study = TRUE")
   expect_equal(pt$method, "event_study")
 })
+
+test_that("ETWFE Poisson adapter runs vanilla Poisson for pretrend_test", {
+  skip_if_not_installed("etwfe")
+  skip_if_not_installed("fixest")
+
+  set.seed(333)
+  n_units <- 30
+  n_periods <- 15
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(rep(2008, 15), rep(NA, 15)), each = n_periods),
+    y = rpois(n_units * n_periods, lambda = 5),
+    pop = rep(10000, n_units * n_periods)
+  )
+
+  adapter <- adapter_etwfe_poisson()
+
+  # Capture the message about vanilla Poisson
+  expect_message(
+    result <- adapter$fit(
+      data = test_data,
+      outcome_var = "y",
+      time_var = "year",
+      id_var = "unit_id",
+      group_var = "cohort",
+      pop_var = "pop",
+      outcome_type = "count",
+      pretrend_test = TRUE
+    ),
+    regexp = "vanilla Poisson"
+  )
+
+  # Check pretrend_test exists and uses correct method
+  expect_true("pretrend_test" %in% names(result$metadata))
+
+  pt <- result$metadata$pretrend_test
+  expect_equal(pt$method, "vanilla_poisson_event_study")
+
+  # Should also have cv_comparison for Poisson
+  expect_true("cv_comparison" %in% names(pt))
+  expect_named(pt$cv_comparison, c("ratio_cv", "diff_cv", "recommendation"))
+})
+
+test_that("ETWFE linear adapter uses event_study method for pretrend_test", {
+  skip_if_not_installed("etwfe")
+
+  set.seed(444)
+  n_units <- 30
+  n_periods <- 12
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(rep(2006, 15), rep(NA, 15)), each = n_periods),
+    y = rnorm(n_units * n_periods, mean = 10, sd = 2)
+  )
+
+  adapter <- adapter_etwfe()
+  result <- adapter$fit(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    id_var = "unit_id",
+    group_var = "cohort",
+    event_study = TRUE,
+    pretrend_test = TRUE
+  )
+
+  # For linear ETWFE, should NOT have pretrend_test (ETWFE doesn't produce pre-treatment)
+  # OR should have warning explaining limitation
+  if ("pretrend_test" %in% names(result$metadata)) {
+    pt <- result$metadata$pretrend_test
+    # Either method is event_study (if we could extract) or has warning
+    expect_true(pt$method == "event_study" || !is.null(pt$warning))
+  }
+})

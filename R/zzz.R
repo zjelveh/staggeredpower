@@ -16,4 +16,10 @@
   if (requireNamespace("did2s", quietly = TRUE)) {
     register_adapter(adapter_did2s())
   }
+
+  # Auto-register etwfe adapter if etwfe package is available
+  if (requireNamespace("etwfe", quietly = TRUE)) {
+    register_adapter(adapter_etwfe())
+    register_adapter(adapter_etwfe_poisson())
+  }
 }
