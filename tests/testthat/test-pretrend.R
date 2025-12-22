@@ -391,3 +391,99 @@ test_that("ETWFE linear adapter uses event_study method for pretrend_test", {
     expect_true(pt$method == "event_study" || !is.null(pt$warning))
   }
 })
+
+test_that("CS adapter returns pretrend_test when requested", {
+  skip_if_not_installed("did")
+
+  set.seed(555)
+  n_units <- 40
+  n_periods <- 12
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(rep(2006, 20), rep(0, 20)), each = n_periods),
+    y = rnorm(n_units * n_periods, mean = 10, sd = 2)
+  )
+
+  adapter <- adapter_cs()
+  result <- adapter$fit(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    id_var = "unit_id",
+    group_var = "cohort",
+    event_study = TRUE,
+    pretrend_test = TRUE
+  )
+
+  expect_true("pretrend_test" %in% names(result$metadata))
+
+  pt <- result$metadata$pretrend_test
+  expect_equal(pt$method, "event_study")
+})
+
+test_that("CS adapter skips pretrend_test when pretrend_test = FALSE", {
+  skip_if_not_installed("did")
+
+  set.seed(666)
+  n_units <- 30
+  n_periods <- 10
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(rep(2005, 15), rep(0, 15)), each = n_periods),
+    y = rnorm(n_units * n_periods, mean = 10, sd = 2)
+  )
+
+  adapter <- adapter_cs()
+  result <- adapter$fit(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    id_var = "unit_id",
+    group_var = "cohort",
+    event_study = TRUE,
+    pretrend_test = FALSE
+  )
+
+  # pretrend_test should NOT be in metadata
+  expect_false("pretrend_test" %in% names(result$metadata))
+})
+
+test_that("CS adapter handles pretrend_test = TRUE with event_study = FALSE", {
+  skip_if_not_installed("did")
+
+  set.seed(777)
+  n_units <- 30
+  n_periods <- 10
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(rep(2005, 15), rep(0, 15)), each = n_periods),
+    y = rnorm(n_units * n_periods, mean = 10, sd = 2)
+  )
+
+  adapter <- adapter_cs()
+  result <- adapter$fit(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    id_var = "unit_id",
+    group_var = "cohort",
+    event_study = FALSE,
+    pretrend_test = TRUE
+  )
+
+  # Check pretrend_test exists in metadata with warning
+  expect_true("pretrend_test" %in% names(result$metadata))
+
+  pt <- result$metadata$pretrend_test
+  expect_named(pt, c("p_value", "wald_stat", "df", "reject_at_05", "warning", "method"))
+
+  # Should have NA values and a warning
+  expect_true(is.na(pt$p_value))
+  expect_true(is.na(pt$wald_stat))
+  expect_true(is.na(pt$df))
+  expect_match(pt$warning, "requires event_study = TRUE")
+  expect_equal(pt$method, "event_study")
+})

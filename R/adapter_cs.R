@@ -25,6 +25,7 @@ adapter_cs <- function() {
                      n_cores = NULL,
                      event_study = FALSE,
                      weightsname = NULL,
+                     pretrend_test = FALSE,
                      ...) {
 
     # Default cluster to id_var
@@ -67,6 +68,7 @@ adapter_cs <- function() {
 
     # Optionally compute event study
     event_study_result <- NULL
+    event_study_agg <- NULL
     if (event_study) {
       event_study_agg <- did::aggte(m_csa, type = "dynamic", na.rm = TRUE)
       event_study_result <- data.table::data.table(
@@ -76,26 +78,110 @@ adapter_cs <- function() {
       )
     }
 
+    # Pre-trend test if requested
+    pt_result <- NULL
+    if (pretrend_test) {
+      if (!event_study) {
+        # Can't do pre-trend test without event study
+        pt_result <- list(
+          p_value = NA_real_,
+          wald_stat = NA_real_,
+          df = NA_integer_,
+          reject_at_05 = NA,
+          warning = "Pre-trend test requires event_study = TRUE",
+          method = "event_study"
+        )
+      } else {
+        # Extract pre-treatment periods (negative event times, excluding reference period)
+        pre_idx <- event_study_agg$egt < 0
+
+        if (sum(pre_idx) > 0) {
+          # Extract pre-treatment coefficients
+          pre_coefs <- event_study_agg$att.egt[pre_idx]
+          names(pre_coefs) <- paste0("t", event_study_agg$egt[pre_idx])
+
+          # Reconstruct VCV from influence functions
+          # The influence functions are in event_study_agg$inf.function$dynamic.inf.func.e
+          # This is a matrix with rows = observations, columns = event times
+          tryCatch({
+            inf_funcs <- event_study_agg$inf.function$dynamic.inf.func.e
+
+            # Extract influence functions for pre-treatment periods
+            pre_inf_funcs <- inf_funcs[, pre_idx, drop = FALSE]
+
+            # Compute VCV as cov(inf_functions) / n where n is number of clusters
+            # For CS, the number of observations equals the number of clusters
+            # since influence functions are already aggregated at cluster level
+            n_clusters <- nrow(pre_inf_funcs)
+            pre_vcov <- stats::cov(pre_inf_funcs) / n_clusters
+            rownames(pre_vcov) <- colnames(pre_vcov) <- names(pre_coefs)
+
+            # Compute Wald test
+            pt_result <- compute_pretrend_wald_test(pre_coefs, pre_vcov)
+            pt_result$method <- "event_study"
+            pt_result$vcov_note <- "Reconstructed from influence functions"
+          }, error = function(e) {
+            # Fallback: use diagonal approximation if influence functions fail
+            pre_vcov <- diag(event_study_agg$se.egt[pre_idx]^2)
+            rownames(pre_vcov) <- colnames(pre_vcov) <- names(pre_coefs)
+
+            pt_result <- compute_pretrend_wald_test(pre_coefs, pre_vcov)
+            pt_result$method <- "event_study"
+            pt_result$vcov_note <- paste0("Diagonal approximation (influence functions unavailable: ", e$message, ")")
+            pt_result
+          })
+        } else {
+          pt_result <- list(
+            p_value = NA_real_,
+            wald_stat = NA_real_,
+            df = NA_integer_,
+            reject_at_05 = NA,
+            warning = "No pre-treatment periods found in event study",
+            method = "event_study"
+          )
+        }
+      }
+    }
+
+    # Build metadata
+    metadata <- list(
+      control_group = "notyettreated",
+      estimator = "doubly_robust"
+    )
+
+    # Add pretrend_test to metadata if computed
+    if (!is.null(pt_result)) {
+      metadata$pretrend_test <- pt_result
+    }
+
     # Return both for extraction
     list(
       agg = m_csa_agg,
       event_study = event_study_result,
-      raw = m_csa
+      raw = m_csa,
+      metadata = metadata
     )
   }
 
   # EXTRACT FUNCTION: did result → standard_estimate
   extract_fn <- function(result) {
+    # Use metadata from fit result (may include pretrend_test)
+    metadata <- if (!is.null(result$metadata)) {
+      result$metadata
+    } else {
+      list(
+        control_group = "notyettreated",
+        estimator = "doubly_robust"
+      )
+    }
+
     standard_estimate(
       att = result$agg$overall.att,
       se = result$agg$overall.se,
       model_name = "cs",
       event_study = result$event_study,
       raw_result = result$raw,
-      metadata = list(
-        control_group = "notyettreated",
-        estimator = "doubly_robust"
-      )
+      metadata = metadata
     )
   }
 
