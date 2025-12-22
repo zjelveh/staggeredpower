@@ -90,6 +90,7 @@ adapter_did2s <- function() {
 
     # Event study if requested
     event_study_result <- NULL
+    result_es <- NULL
     if (event_study) {
       # For event study, use relative time indicators
       # Create relative time variable
@@ -125,9 +126,20 @@ adapter_did2s <- function() {
       }
     }
 
-    # Pre-trend test if requested and event study was computed
+    # Pre-trend test if requested
     pt_result <- NULL
-    if (pretrend_test && !is.null(result_es)) {
+    if (pretrend_test) {
+      # Check if event study was run
+      if (is.null(result_es)) {
+        pt_result <- list(
+          p_value = NA_real_,
+          wald_stat = NA_real_,
+          df = NA_integer_,
+          reject_at_05 = NA,
+          warning = "Pre-trend test requires event_study = TRUE",
+          method = "event_study"
+        )
+      } else {
       # Extract pre-treatment terms from vcov
       full_vcov <- stats::vcov(result_es)
       all_terms <- rownames(full_vcov)
@@ -158,6 +170,7 @@ adapter_did2s <- function() {
           warning = "No pre-treatment periods found in event study",
           method = "event_study"
         )
+      }
       }
     }
 

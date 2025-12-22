@@ -275,3 +275,43 @@ test_that("did2s adapter skips pretrend_test when pretrend_test = FALSE", {
   # pretrend_test should NOT be in metadata
   expect_false("pretrend_test" %in% names(result$metadata))
 })
+
+test_that("did2s adapter handles pretrend_test = TRUE with event_study = FALSE", {
+  skip_if_not_installed("did2s")
+
+  set.seed(333)
+  n_units <- 20
+  n_periods <- 10
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(rep(2005, 10), rep(2007, 10)), each = n_periods),
+    y = rnorm(n_units * n_periods, mean = 10, sd = 2)
+  )
+
+  adapter <- adapter_did2s()
+
+  # This should not error - it should handle gracefully with a warning
+  result <- adapter$fit(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    id_var = "unit_id",
+    group_var = "cohort",
+    event_study = FALSE,
+    pretrend_test = TRUE
+  )
+
+  # Check pretrend_test exists in metadata with warning
+  expect_true("pretrend_test" %in% names(result$metadata))
+
+  pt <- result$metadata$pretrend_test
+  expect_named(pt, c("p_value", "wald_stat", "df", "reject_at_05", "warning", "method"))
+
+  # Should have NA values and a warning
+  expect_true(is.na(pt$p_value))
+  expect_true(is.na(pt$wald_stat))
+  expect_true(is.na(pt$df))
+  expect_match(pt$warning, "requires event_study = TRUE")
+  expect_equal(pt$method, "event_study")
+})
