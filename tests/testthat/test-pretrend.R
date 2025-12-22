@@ -209,3 +209,69 @@ test_that("compute_cv_comparison recommends additive when difference more stable
   expect_true(result$diff_cv < result$ratio_cv)
   expect_equal(result$recommendation, "additive")
 })
+
+test_that("did2s adapter returns pretrend_test when requested", {
+  skip_if_not_installed("did2s")
+
+  # Create test data
+  set.seed(111)
+  n_units <- 30
+  n_periods <- 12
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(rep(2006, 15), rep(2009, 15)), each = n_periods),
+    y = rnorm(n_units * n_periods, mean = 10, sd = 2)
+  )
+
+  adapter <- adapter_did2s()
+  result <- adapter$fit(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    id_var = "unit_id",
+    group_var = "cohort",
+    event_study = TRUE,
+    pretrend_test = TRUE
+  )
+
+  # Check pretrend_test exists in metadata
+  expect_true("pretrend_test" %in% names(result$metadata))
+
+  pt <- result$metadata$pretrend_test
+  expect_named(pt, c("p_value", "wald_stat", "df", "reject_at_05", "warning", "method"))
+  expect_equal(pt$method, "event_study")
+
+  # p_value should be valid (might be NA if not enough pre-periods)
+  if (!is.na(pt$p_value)) {
+    expect_true(pt$p_value >= 0 && pt$p_value <= 1)
+  }
+})
+
+test_that("did2s adapter skips pretrend_test when pretrend_test = FALSE", {
+  skip_if_not_installed("did2s")
+
+  set.seed(222)
+  n_units <- 20
+  n_periods <- 10
+  test_data <- data.table::data.table(
+    unit_id = rep(1:n_units, each = n_periods),
+    year = rep(2000:(2000 + n_periods - 1), n_units),
+    cohort = rep(c(rep(2005, 10), rep(2007, 10)), each = n_periods),
+    y = rnorm(n_units * n_periods, mean = 10, sd = 2)
+  )
+
+  adapter <- adapter_did2s()
+  result <- adapter$fit(
+    data = test_data,
+    outcome_var = "y",
+    time_var = "year",
+    id_var = "unit_id",
+    group_var = "cohort",
+    event_study = TRUE,
+    pretrend_test = FALSE
+  )
+
+  # pretrend_test should NOT be in metadata
+  expect_false("pretrend_test" %in% names(result$metadata))
+})

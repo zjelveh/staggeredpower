@@ -28,6 +28,10 @@ adapter_did2s <- function() {
                      event_study = FALSE,
                      weightsname = NULL,
                      treat_var = NULL,
+                     outcome_type = NULL,
+                     pop_var = NULL,
+                     family = NULL,
+                     pretrend_test = FALSE,
                      ...) {
 
     # Default cluster to id_var
@@ -121,11 +125,63 @@ adapter_did2s <- function() {
       }
     }
 
+    # Pre-trend test if requested and event study was computed
+    pt_result <- NULL
+    if (pretrend_test && !is.null(result_es)) {
+      # Extract pre-treatment terms from vcov
+      full_vcov <- stats::vcov(result_es)
+      all_terms <- rownames(full_vcov)
+      all_coefs <- names(stats::coef(result_es))
+
+      # Find pre-treatment terms (negative relative time, excluding -1 reference)
+      # Pattern matches both simple names and __CLEAN__ variants
+      pre_pattern <- "rel_time::-[0-9]+"
+      pre_coef_names <- grep(pre_pattern, all_coefs, value = TRUE)
+      pre_coef_names <- pre_coef_names[!grepl("::-1$", pre_coef_names)]
+
+      # Match vcov names (may have __CLEAN__ prefix)
+      pre_vcov_names <- grep(pre_pattern, all_terms, value = TRUE)
+      pre_vcov_names <- pre_vcov_names[!grepl("::-1$", pre_vcov_names)]
+
+      if (length(pre_coef_names) > 0 && length(pre_vcov_names) > 0) {
+        pre_coefs <- stats::coef(result_es)[pre_coef_names]
+        pre_vcov_sub <- full_vcov[pre_vcov_names, pre_vcov_names, drop = FALSE]
+
+        pt_result <- compute_pretrend_wald_test(pre_coefs, pre_vcov_sub)
+        pt_result$method <- "event_study"
+      } else {
+        pt_result <- list(
+          p_value = NA_real_,
+          wald_stat = NA_real_,
+          df = NA_integer_,
+          reject_at_05 = NA,
+          warning = "No pre-treatment periods found in event study",
+          method = "event_study"
+        )
+      }
+    }
+
+    # Build metadata
+    metadata <- list(
+      method = "two_stage_did",
+      package = "did2s",
+      reference = "Gardner (2022)",
+      pt_assumption = "additive (level scale)",
+      transformation_applied = FALSE,
+      outcome_type_input = ifelse(is.null(outcome_type), "rate (assumed)", outcome_type)
+    )
+
+    # Add pretrend_test to metadata if computed
+    if (!is.null(pt_result)) {
+      metadata$pretrend_test <- pt_result
+    }
+
     list(
       att = att,
       se = se,
       event_study = event_study_result,
-      raw = result
+      raw = result,
+      metadata = metadata
     )
   }
 
@@ -137,11 +193,7 @@ adapter_did2s <- function() {
       model_name = "did2s",
       event_study = result$event_study,
       raw_result = result$raw,
-      metadata = list(
-        method = "two_stage_did",
-        package = "did2s",
-        reference = "Gardner (2022)"
-      )
+      metadata = result$metadata
     )
   }
 
