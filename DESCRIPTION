@@ -24,5 +24,6 @@ Suggests:
     testthat (>= 3.0.0),
     knitr,
     rmarkdown,
-    ggplot2
+    ggplot2,
+    etwfe
 Config/testthat/edition: 3

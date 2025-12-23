@@ -1,7 +1,8 @@
 # R/adapter_imputation.R
 #' Borusyak-Jaravel-Spiess Imputation Adapter
 #'
-#' Translates between staggeredpower's common interface and the `didimputation` package
+#' Translates between staggeredpower's common interface and the `didimputation` package.
+#' Assumes additive parallel trends (level scale).
 #'
 #' @return An estimator_adapter for imputation-based estimation
 #' @export
@@ -24,11 +25,31 @@ adapter_imputation <- function() {
                      cluster_var = NULL,
                      event_study = FALSE,
                      weightsname = NULL,
+                     outcome_type = NULL,
+                     pop_var = NULL,
+                     family = NULL,  # ignored by imputation, but accepted for compatibility
                      ...) {
+
+    # Convert to data.table for manipulation
+    data <- data.table::as.data.table(data)
 
     # Default cluster to id_var
     if (is.null(cluster_var)) {
       cluster_var <- id_var
+    }
+
+    # Handle count → rate transformation if needed
+    working_outcome <- outcome_var
+    transformation_applied <- "none"
+
+    if (!is.null(outcome_type) && outcome_type == "count") {
+      if (is.null(pop_var)) {
+        stop("imputation adapter with outcome_type='count' requires pop_var to compute rate")
+      }
+      # Create rate variable: rate = count / pop * 100000
+      data[, .imputation_rate := get(outcome_var) / get(pop_var) * 100000]
+      working_outcome <- ".imputation_rate"
+      transformation_applied <- "count_to_rate"
     }
 
     # Build first_stage formula for controls
@@ -41,17 +62,18 @@ adapter_imputation <- function() {
     }
 
     # Call didimputation::did_imputation
+    # horizon = NULL gives static ATT, horizon = TRUE gives all event times
     result <- didimputation::did_imputation(
       data = as.data.frame(data),
-      yname = outcome_var,
+      yname = working_outcome,
       gname = group_var,
       tname = time_var,
       idname = id_var,
       first_stage = first_stage_formula,
       wname = weightsname,
       cluster_var = cluster_var,
-      horizon = event_study,
-      pretrends = if (event_study) -6:0 else FALSE
+      horizon = if (event_study) TRUE else NULL,
+      pretrends = if (event_study) TRUE else NULL
     )
 
     # The result is already aggregated by did_imputation
@@ -59,7 +81,14 @@ adapter_imputation <- function() {
     list(
       estimate = result$estimate,
       std.error = result$std.error,
-      raw = result
+      raw = result,
+      metadata = list(
+        method = "imputation",
+        package = "didimputation",
+        pt_assumption = "additive (level scale)",
+        transformation_applied = transformation_applied,
+        outcome_type_input = ifelse(is.null(outcome_type), "rate (assumed)", outcome_type)
+      )
     )
   }
 
@@ -71,10 +100,7 @@ adapter_imputation <- function() {
       model_name = "imputation",
       event_study = NULL,  # didimputation doesn't return event study in same format
       raw_result = result$raw,
-      metadata = list(
-        method = "imputation",
-        package = "didimputation"
-      )
+      metadata = result$metadata
     )
   }
 

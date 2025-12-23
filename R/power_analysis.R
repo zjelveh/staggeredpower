@@ -170,10 +170,10 @@ run_power_analysis <- function(data_clean,
     dat_clean = if (run_iteration == 1) data_clean_full else data_clean_copy
     dat_clean = dat_clean[!is.na(get(outcome))]
     
-    rez_list = 
+    rez_list =
       foreach(sim = 1:n_sims,
-              .packages = c('data.table', 'fixest', 'did2s', 
-                            'did', 'didimputation')) %dopar% 
+              .packages = c('data.table', 'fixest', 'did2s',
+                            'did', 'didimputation', 'staggeredpower')) %dopar% 
       {
         new_temp = list()
         

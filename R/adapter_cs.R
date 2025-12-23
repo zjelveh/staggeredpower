@@ -26,7 +26,13 @@ adapter_cs <- function() {
                      event_study = FALSE,
                      weightsname = NULL,
                      pretrend_test = FALSE,
+                     outcome_type = NULL,
+                     pop_var = NULL,
+                     family = NULL,  # ignored by CS, but accepted for compatibility
                      ...) {
+
+    # Convert to data.table for manipulation
+    data <- data.table::as.data.table(data)
 
     # Default cluster to id_var
     if (is.null(cluster_var)) {
@@ -38,6 +44,20 @@ adapter_cs <- function() {
       n_cores <- max(1, parallel::detectCores() - 1)
     }
 
+    # Handle count → rate transformation if needed
+    working_outcome <- outcome_var
+    transformation_applied <- "none"
+
+    if (!is.null(outcome_type) && outcome_type == "count") {
+      if (is.null(pop_var)) {
+        stop("CS adapter with outcome_type='count' requires pop_var to compute rate")
+      }
+      # Create rate variable: rate = count / pop * 100000
+      data[, .cs_rate := get(outcome_var) / get(pop_var) * 100000]
+      working_outcome <- ".cs_rate"
+      transformation_applied <- "count_to_rate"
+    }
+
     # Translate controls to xformla
     if (!is.null(controls) && length(controls) > 0) {
       control_formula <- as.formula(paste0(" ~ ", paste(controls, collapse = " + ")))
@@ -47,7 +67,7 @@ adapter_cs <- function() {
 
     # Call did::att_gt
     m_csa <- did::att_gt(
-      yname = outcome_var,
+      yname = working_outcome,
       xformla = control_formula,
       tname = time_var,
       idname = id_var,
@@ -149,7 +169,10 @@ adapter_cs <- function() {
     # Build metadata
     metadata <- list(
       control_group = "notyettreated",
-      estimator = "doubly_robust"
+      estimator = "doubly_robust",
+      pt_assumption = "additive (level scale)",
+      transformation_applied = transformation_applied,
+      outcome_type_input = ifelse(is.null(outcome_type), "rate (assumed)", outcome_type)
     )
 
     # Add pretrend_test to metadata if computed

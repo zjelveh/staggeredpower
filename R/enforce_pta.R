@@ -1,7 +1,7 @@
 #' Enforce Parallel Trends Assumption
 #'
 #' @description
-#' This function enforces the parallel trends assumption (PTA) by adjusting post-treatment 
+#' This function enforces the parallel trends assumption (PTA) by adjusting post-treatment
 #' outcomes based on pre-treatment trends. It supports multiple methods for enforcing the PTA
 #' and different control group definitions.
 #'
@@ -11,26 +11,47 @@
 #' @param time Character. Name of time column (e.g., 'year')
 #' @param outcome Character. Name of outcome column
 #' @param controls Character vector. Names of control variables (default: NULL)
-#' @param method Character. PTA enforcement method: 'imputation' or 'CS' (default: 'imputation')
+#' @param method Character. PTA enforcement method: 'imputation', 'CS', or 'poisson' (default: 'imputation')
 #' @param seed Numeric. Random seed for reproducibility (default: NULL)
+#' @param pop_var Character. For Poisson method, name of population variable (required for method='poisson')
+#' @param outcome_type Character. For Poisson method, 'count' or 'rate'. Default 'rate'.
 #'
-#' @return A list containing:
+#' @return A data.frame with enforced parallel trends (includes 'counterfactual' column)
+#'
+#' @details
+#' Three methods are available:
 #' \describe{
-#'   \item{df_new}{Data.frame with enforced parallel trends}
-#'   \item{stats}{Data.frame with enforcement statistics}
+#'   \item{imputation}{Uses two-way fixed effects on untreated observations to impute
+#'     counterfactuals. Assumes additive parallel trends on level scale.}
+#'   \item{CS}{Uses Callaway-Sant'Anna style approach with not-yet-treated controls.
+#'     Assumes additive parallel trends on level scale.}
+#'   \item{poisson}{Uses Poisson regression with unit and time fixed effects on untreated
+#'     observations. Assumes multiplicative parallel trends on log-rate scale. This is
+#'     appropriate for rare count outcomes (Wooldridge 2023).}
 #' }
 #'
 #' @examples
 #' \dontrun{
-#' data <- prepare_panel_data(your_data)
+#' # Linear approach (additive PT)
 #' pta_results <- enforce_PTA(
 #'   df = data,
 #'   unit = "county_name",
 #'   group = "year_passed",
 #'   time = "year",
-#'   outcome = "outcome_var",
-#'   period = "pre_year",
-#'   cohort = "notyettreated"
+#'   outcome = "rate_per_100k",
+#'   method = "imputation"
+#' )
+#'
+#' # Poisson approach (multiplicative PT)
+#' pta_results <- enforce_PTA(
+#'   df = data,
+#'   unit = "county_name",
+#'   group = "year_passed",
+#'   time = "year",
+#'   outcome = "count",
+#'   method = "poisson",
+#'   pop_var = "population",
+#'   outcome_type = "count"
 #' )
 #' }
 #'
@@ -38,13 +59,17 @@
 #' @export
 enforce_PTA <- function(df, unit, group, time, outcome,
                         controls = NULL,
-                        method = c("imputation", "CS"),
-                        seed = NULL) {
+                        method = c("imputation", "CS", "poisson"),
+                        seed = NULL,
+                        pop_var = NULL,
+                        outcome_type = "rate") {
   method <- match.arg(method)
   if (method == "imputation") {
     enforce_PTA_imputation(df, unit, group, time, outcome, controls, seed)
-  } else {
+  } else if (method == "CS") {
     enforce_PTA_CS(df, unit, group, time, outcome, controls, seed)
+  } else if (method == "poisson") {
+    enforce_PTA_poisson(df, unit, group, time, outcome, controls, seed, pop_var, outcome_type)
   }
 }
 
@@ -252,4 +277,200 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   }
 
   return(df_new)
+}
+
+
+#' Generate counterfactual outcomes using Poisson approach (multiplicative PT)
+#'
+#' @description
+#' This function implements a Poisson-based approach for difference-in-differences with
+#' staggered adoption. It estimates a Poisson fixed effects model using only untreated
+#' observations and generates counterfactual outcomes for treated observations on the
+#' log-rate scale, then back-transforms to counts or rates.
+#'
+#' This implements the multiplicative parallel trends assumption (Wooldridge 2023):
+#' E[Y_t(0)] / E[Y_{t-1}(0)] is constant across treatment groups.
+#'
+#' @param df A data.table containing the panel data
+#' @param unit Character string specifying the column name for unit identifiers
+#' @param group Character string specifying the column name for treatment group/cohort
+#' @param time Character string specifying the column name for time periods
+#' @param outcome Character string specifying the column name for the outcome variable
+#' @param controls Character vector. Names of control variables (default: NULL)
+#' @param seed Numeric. Random seed for reproducibility (default: NULL)
+#' @param pop_var Character. Name of population variable (required)
+#' @param outcome_type Character. 'count' or 'rate' (default: 'rate')
+#'
+#' @return A data.table with an additional column 'counterfactual' containing:
+#'   - Actual outcomes for untreated observations
+#'   - Imputed counterfactual outcomes for treated observations
+#'
+#' @details
+#' The function follows these steps:
+#' 1. Converts rates to counts if needed (count = rate * pop / 100000)
+#' 2. Splits data into treated and untreated observations
+#' 3. Estimates Poisson fixed effects model on untreated observations:
+#'    E[count | untreated] = exp(alpha_i + gamma_t + X*beta) with log(pop) offset
+#' 4. Uses these estimates to predict counterfactual log-rates for treated observations
+#' 5. Adds Poisson noise (using rpois) to generate stochastic counterfactuals
+#' 6. Converts back to rate scale if needed
+#'
+#' @examples
+#' \dontrun{
+#' df <- data.table(
+#'   unit = rep(1:10, each = 5),
+#'   time = rep(1:5, 10),
+#'   group = rep(c(3,4,5), length.out = 10),
+#'   count = rpois(50, lambda = 5),
+#'   pop = sample(10000:100000, 50, replace = TRUE)
+#' )
+#' result <- enforce_PTA_poisson(df, "unit", "group", "time", "count",
+#'                               pop_var = "pop", outcome_type = "count")
+#' }
+#'
+#' @export
+enforce_PTA_poisson <- function(df, unit, group, time, outcome,
+                                 controls = NULL, seed = NULL,
+                                 pop_var = NULL, outcome_type = "rate") {
+
+  # Constants
+  RATE_SCALE <- 100000
+
+  if (!is.null(seed)) set.seed(seed)
+
+  # Validate pop_var
+
+  if (is.null(pop_var)) {
+    stop("enforce_PTA_poisson requires pop_var to be specified")
+  }
+
+  df <- data.table::copy(df)
+
+  # Validate population variable
+  if (!(pop_var %in% names(df))) {
+    stop(sprintf("pop_var '%s' not found in data", pop_var))
+  }
+  if (any(df[[pop_var]] <= 0, na.rm = TRUE)) {
+    stop("pop_var contains non-positive values; cannot use Poisson model")
+  }
+
+  # Convert to count if input is rate
+  if (outcome_type == "rate") {
+    df[, .pois_count := get(outcome) * get(pop_var) / RATE_SCALE]
+    working_outcome <- ".pois_count"
+  } else {
+    working_outcome <- outcome
+  }
+
+  # Create log(pop) offset
+  df[, .log_pop := log(get(pop_var))]
+
+  # Create local copies of variable names for data.table scoping
+  group_col <- group
+  time_col <- time
+  unit_col <- unit
+
+  # Robust treated flag: TRUE if treated unit and post-treatment time
+  df[, treated := !is.na(get(group_col)) & get(time_col) > get(group_col)]
+
+  # Keep untreated observations for Poisson FE estimation
+  df_untreated <- df[treated == FALSE | is.na(treated)]
+
+  # Check we have enough untreated observations
+  if (nrow(df_untreated) < 10) {
+    stop("Too few untreated observations to fit Poisson model")
+  }
+
+  # Build Poisson FE formula with offset
+  # Using fixest::fepois for Poisson with fixed effects
+  if (!is.null(controls) && length(controls) > 0) {
+    control_terms <- paste(controls, collapse = " + ")
+    fe_formula <- stats::as.formula(
+      paste0(working_outcome, " ~ ", control_terms, " + offset(.log_pop) | ", unit, " + ", time)
+    )
+  } else {
+    fe_formula <- stats::as.formula(
+      paste0(working_outcome, " ~ offset(.log_pop) | ", unit, " + ", time)
+    )
+  }
+
+  # Fit Poisson model
+  mod_pois <- tryCatch({
+    fixest::fepois(fe_formula, data = df_untreated)
+  }, error = function(e) {
+    stop(sprintf("Poisson fixed effects model failed: %s", e$message))
+  })
+
+  # Extract fixed effects
+  unit_names <- names(fixest::fixef(mod_pois)[[unit]])
+  if (is.numeric(df[[unit]])) {
+    unit_names <- as.numeric(unit_names)
+  }
+  unit_effects <- data.table::data.table(
+    unit = unit_names,
+    unit_effect = as.numeric(fixest::fixef(mod_pois)[[unit]])
+  )
+  data.table::setnames(unit_effects, "unit", unit)
+
+  time_names <- names(fixest::fixef(mod_pois)[[time]])
+  if (is.numeric(df[[time]])) {
+    time_names <- as.numeric(time_names)
+  }
+  time_effects <- data.table::data.table(
+    time = time_names,
+    time_effect = as.numeric(fixest::fixef(mod_pois)[[time]])
+  )
+  data.table::setnames(time_effects, "time", time)
+
+  # Merge effects
+  df[unit_effects, on = unit, unit_effect := i.unit_effect]
+  df[time_effects, on = time, time_effect := i.time_effect]
+
+  # Initialize counterfactual as observed
+  df[, counterfactual := get(outcome)]
+
+  # Predict counterfactual counts for treated observations
+  # E[count] = exp(alpha_i + gamma_t + X*beta + log(pop))
+  #          = pop * exp(alpha_i + gamma_t + X*beta)
+  if (!is.null(controls) && length(controls) > 0) {
+    control_coefs <- stats::coef(mod_pois)[controls]
+    control_coefs[is.na(control_coefs)] <- 0
+
+    # Calculate control effect for treated obs
+    df[treated == TRUE, control_effect :=
+         Reduce(`+`, Map(function(x, y) get(x) * y, controls, control_coefs))]
+
+    # Predicted rate on log scale (without pop offset)
+    df[treated == TRUE, .log_rate := unit_effect + time_effect + control_effect]
+    df[, control_effect := NULL]
+  } else {
+    df[treated == TRUE, .log_rate := unit_effect + time_effect]
+  }
+
+  # Generate counterfactual counts using Poisson distribution
+  # This preserves the discrete, non-negative nature of counts
+  df[treated == TRUE, .lambda := exp(.log_rate) * get(pop_var)]
+
+  # Handle case where lambda is extremely small or NA
+  df[treated == TRUE & (is.na(.lambda) | .lambda < 0), .lambda := 0]
+
+  # Draw from Poisson
+  df[treated == TRUE, .counterfactual_count := stats::rpois(.N, .lambda)]
+
+  # Convert back to rate scale if needed
+  if (outcome_type == "rate") {
+    df[treated == TRUE, counterfactual := .counterfactual_count / get(pop_var) * RATE_SCALE]
+  } else {
+    df[treated == TRUE, counterfactual := .counterfactual_count]
+  }
+
+  # Clean up temporary columns
+  temp_cols <- c(".pois_count", ".log_pop", "treated", "unit_effect", "time_effect",
+                 ".log_rate", ".lambda", ".counterfactual_count")
+  existing_temp <- intersect(temp_cols, names(df))
+  if (length(existing_temp) > 0) {
+    df[, (existing_temp) := NULL]
+  }
+
+  return(df)
 }

@@ -39,12 +39,34 @@ adapter_did2s <- function() {
       cluster_var <- id_var
     }
 
+    # Convert to data.table for manipulation
+    data <- data.table::as.data.table(data)
+
+    # Handle count → rate transformation if needed
+    working_outcome <- outcome_var
+    transformation_applied <- "none"
+
+    if (!is.null(outcome_type) && outcome_type == "count") {
+      if (is.null(pop_var)) {
+        stop("did2s adapter with outcome_type='count' requires pop_var to compute rate")
+      }
+      # Create rate variable: rate = count / pop * 100000
+      data[, .did2s_rate := get(outcome_var) / get(pop_var) * 100000]
+      working_outcome <- ".did2s_rate"
+      transformation_applied <- "count_to_rate"
+    }
+
     # Create treatment indicator if not provided
     # did2s expects a 0/1 treatment variable
     df <- as.data.frame(data)
     if (is.null(treat_var)) {
       # Create treatment indicator: 1 if year >= group_var (treatment year)
-      df$.treat <- as.integer(df[[time_var]] >= df[[group_var]] & df[[group_var]] > 0)
+      # Handle NA values in group_var (never-treated units) - they get treat = 0
+      df$.treat <- as.integer(
+        !is.na(df[[group_var]]) &
+        df[[group_var]] > 0 &
+        df[[time_var]] >= df[[group_var]]
+      )
       treat_var <- ".treat"
     }
 
@@ -71,7 +93,7 @@ adapter_did2s <- function() {
     # Call did2s::did2s
     result <- did2s::did2s(
       data = df,
-      yname = outcome_var,
+      yname = working_outcome,
       first_stage = first_stage,
       second_stage = second_stage,
       treatment = treat_var,
@@ -180,7 +202,7 @@ adapter_did2s <- function() {
       package = "did2s",
       reference = "Gardner (2022)",
       pt_assumption = "additive (level scale)",
-      transformation_applied = FALSE,
+      transformation_applied = transformation_applied,
       outcome_type_input = ifelse(is.null(outcome_type), "rate (assumed)", outcome_type)
     )
 
