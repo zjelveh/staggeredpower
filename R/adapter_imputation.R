@@ -33,6 +33,11 @@ adapter_imputation <- function() {
     # Convert to data.table for manipulation
     data <- data.table::as.data.table(data)
 
+    # didimputation requires never-treated units to be coded as 0, not NA
+    if (any(is.na(data[[group_var]]))) {
+      data[is.na(get(group_var)), (group_var) := 0L]
+    }
+
     # Default cluster to id_var
     if (is.null(cluster_var)) {
       cluster_var <- id_var

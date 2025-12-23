@@ -42,6 +42,12 @@ adapter_did2s <- function() {
     # Convert to data.table for manipulation
     data <- data.table::as.data.table(data)
 
+    # did2s requires never-treated units to be coded as 0, not NA
+    # (consistent with CS and imputation adapters)
+    if (any(is.na(data[[group_var]]))) {
+      data[is.na(get(group_var)), (group_var) := 0L]
+    }
+
     # Handle count → rate transformation if needed
     working_outcome <- outcome_var
     transformation_applied <- "none"
@@ -116,9 +122,9 @@ adapter_did2s <- function() {
     result_es <- NULL
     if (event_study) {
       # For event study, use relative time indicators
-      # Create relative time variable (NA for never-treated coded as -9999)
+      # Create relative time variable (never-treated with group=0 coded as -9999)
       df$.rel_time <- df[[time_var]] - df[[group_var]]
-      df$.rel_time[is.na(df$.rel_time)] <- -9999  # Code never-treated
+      df$.rel_time[df[[group_var]] == 0] <- -9999  # Code never-treated
       # Cap at reasonable bounds (but preserve never-treated indicator)
       df$.rel_time <- ifelse(df$.rel_time == -9999, -9999,
                               pmax(pmin(df$.rel_time, 10), -6))
