@@ -103,7 +103,9 @@ adapter_cs <- function() {
           # Reconstruct VCV from influence functions
           # The influence functions are in event_study_agg$inf.function$dynamic.inf.func.e
           # This is a matrix with rows = observations, columns = event times
-          tryCatch({
+          # Note: This may produce slightly smaller variances than did's reported SEs
+          # due to different small-sample corrections. The resulting test is conservative.
+          pt_result <- tryCatch({
             inf_funcs <- event_study_agg$inf.function$dynamic.inf.func.e
 
             # Extract influence functions for pre-treatment periods
@@ -117,18 +119,19 @@ adapter_cs <- function() {
             rownames(pre_vcov) <- colnames(pre_vcov) <- names(pre_coefs)
 
             # Compute Wald test
-            pt_result <- compute_pretrend_wald_test(pre_coefs, pre_vcov)
-            pt_result$method <- "event_study"
-            pt_result$vcov_note <- "Reconstructed from influence functions"
+            result <- compute_pretrend_wald_test(pre_coefs, pre_vcov)
+            result$method <- "event_study"
+            result$vcov_note <- "Reconstructed from influence functions"
+            result  # Return the result
           }, error = function(e) {
             # Fallback: use diagonal approximation if influence functions fail
             pre_vcov <- diag(event_study_agg$se.egt[pre_idx]^2)
             rownames(pre_vcov) <- colnames(pre_vcov) <- names(pre_coefs)
 
-            pt_result <- compute_pretrend_wald_test(pre_coefs, pre_vcov)
-            pt_result$method <- "event_study"
-            pt_result$vcov_note <- paste0("Diagonal approximation (influence functions unavailable: ", e$message, ")")
-            pt_result
+            result <- compute_pretrend_wald_test(pre_coefs, pre_vcov)
+            result$method <- "event_study"
+            result$vcov_note <- paste0("Diagonal approximation (influence functions unavailable: ", e$message, ")")
+            result  # Return the result
           })
         } else {
           pt_result <- list(
