@@ -103,9 +103,10 @@ adapter_did2s <- function() {
     )
 
     # Extract ATT and SE from the fixest result
-    # The coefficient on the treatment indicator is the ATT
+    # The coefficient on treatment = 1 is the ATT (not treatment = 0)
     coef_table <- as.data.frame(summary(result)$coeftable)
-    treat_row <- grep(treat_var, rownames(coef_table), value = TRUE)[1]
+    # Match .treat::1 specifically (the treated coefficient, not .treat::0)
+    treat_row <- grep(paste0(treat_var, "::1"), rownames(coef_table), value = TRUE)[1]
 
     att <- coef_table[treat_row, "Estimate"]
     se <- coef_table[treat_row, "Std. Error"]
