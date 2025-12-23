@@ -2,7 +2,7 @@
 % Please edit documentation in R/pretrend_test.R
 \name{compute_pretrend_wald_test}
 \alias{compute_pretrend_wald_test}
-\title{Pre-trend Testing Functions for Staggered DiD}
+\title{Compute Wald Test on Pre-treatment Coefficients}
 \usage{
 compute_pretrend_wald_test(pre_coefs, pre_vcov)
 }
@@ -20,15 +20,11 @@ List with:
 \item{warning}{NULL if successful, otherwise explanation of failure}
 }
 \description{
-Functions for testing parallel trends assumptions in staggered
-difference-in-differences designs.
-Compute Wald Test on Pre-treatment Coefficients
-}
-\details{
 Performs a joint Wald test that all pre-treatment coefficients are zero,
 using the full variance-covariance matrix.
-
-The Wald statistic is computed as W = beta' * Sigma^{-1} * beta,
+}
+\details{
+The Wald statistic is computed as W = beta' * Sigma^(-1) * beta,
 which follows a chi-squared distribution with k degrees of freedom
 under the null hypothesis that all coefficients are zero.
 }

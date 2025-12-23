@@ -1,8 +1,9 @@
 # R/pretrend_test.R
-#' Pre-trend Testing Functions for Staggered DiD
-#'
-#' Functions for testing parallel trends assumptions in staggered
-#' difference-in-differences designs.
+
+# Global variable bindings for R CMD check
+# These are data.table column names that are created within functions
+if(getRversion() >= "2.15.1")  utils::globalVariables(c(".rel_time", ".rel_time_trim", ".group",
+                         "difference", "early", "late", "ratio"))
 
 #' Compute Wald Test on Pre-treatment Coefficients
 #'
@@ -20,10 +21,11 @@
 #'   \item{warning}{NULL if successful, otherwise explanation of failure}
 #'
 #' @details
-#' The Wald statistic is computed as W = beta' * Sigma^{-1} * beta,
+#' The Wald statistic is computed as W = beta' * Sigma^(-1) * beta,
 #' which follows a chi-squared distribution with k degrees of freedom
 #' under the null hypothesis that all coefficients are zero.
 #'
+#' @importFrom stats pchisq
 #' @export
 compute_pretrend_wald_test <- function(pre_coefs, pre_vcov) {
 
@@ -110,6 +112,7 @@ compute_pretrend_wald_test <- function(pre_coefs, pre_vcov) {
 #'
 #' @importFrom fixest fepois
 #' @importFrom data.table as.data.table
+#' @importFrom stats as.formula coef vcov
 #' @export
 run_vanilla_poisson_es <- function(data, outcome_var, time_var, id_var,
                                     group_var, cluster_var, ref_period = -1,
@@ -175,6 +178,7 @@ run_vanilla_poisson_es <- function(data, outcome_var, time_var, id_var,
 #' adopters (split at median cohort) in the pre-treatment period.
 #'
 #' @importFrom data.table as.data.table dcast fifelse
+#' @importFrom stats as.formula median sd
 #' @export
 compute_cv_comparison <- function(data, outcome_var, time_var, group_var, id_var) {
 

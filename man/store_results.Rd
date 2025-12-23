@@ -42,6 +42,8 @@ store_results(
 
 \item{result_type}{Result type}
 
+\item{transform_outcome}{Transform outcome variable}
+
 \item{model}{Model type}
 }
 \description{

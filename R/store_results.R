@@ -13,7 +13,7 @@
 #' @param use_controls Control usage
 #' @param drop_add_states State dropping
 #' @param result_type Result type
-#' @param transform_outcome
+#' @param transform_outcome Transform outcome variable
 #' @export
 store_results <- function(results,
                           data,
