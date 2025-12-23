@@ -116,18 +116,20 @@ adapter_did2s <- function() {
     result_es <- NULL
     if (event_study) {
       # For event study, use relative time indicators
-      # Create relative time variable
+      # Create relative time variable (NA for never-treated coded as -9999)
       df$.rel_time <- df[[time_var]] - df[[group_var]]
-      # Cap at reasonable bounds
-      df$.rel_time <- pmax(pmin(df$.rel_time, 10), -6)
+      df$.rel_time[is.na(df$.rel_time)] <- -9999  # Code never-treated
+      # Cap at reasonable bounds (but preserve never-treated indicator)
+      df$.rel_time <- ifelse(df$.rel_time == -9999, -9999,
+                              pmax(pmin(df$.rel_time, 10), -6))
 
-      # Second stage with event time dummies (reference = -1)
-      second_stage_es <- as.formula("~ i(.rel_time, ref = -1)")
+      # Second stage with event time dummies (reference = -1 and never-treated)
+      second_stage_es <- as.formula("~ i(.rel_time, ref = c(-1, -9999))")
 
       result_es <- tryCatch({
         did2s::did2s(
           data = df,
-          yname = outcome_var,
+          yname = working_outcome,
           first_stage = first_stage,
           second_stage = second_stage_es,
           treatment = treat_var,
