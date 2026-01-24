@@ -3,7 +3,7 @@
 export(adapter_cs)
 export(adapter_did2s)
 export(adapter_etwfe)
-export(adapter_etwfe_poisson)
+export(adapter_etwfe_poisson_glm)
 export(adapter_imputation)
 export(compute_cv_comparison)
 export(compute_pretrend_wald_test)
