@@ -28,6 +28,8 @@ adapter_cs <- function() {
                      pretrend_test = FALSE,
                      outcome_type = NULL,
                      pop_var = NULL,
+                     base_period = "varying",
+                     allow_unbalanced_panel = FALSE,
                      family = NULL,  # ignored by CS, but accepted for compatibility
                      ...) {
 
@@ -84,7 +86,8 @@ adapter_cs <- function() {
       anticipation = 0,
       est_method = "dr",
       clustervars = cluster_var,
-      base_period = "varying",
+      base_period = base_period,
+      allow_unbalanced_panel = allow_unbalanced_panel,
       print_details = FALSE,
       weightsname = weightsname
     )
