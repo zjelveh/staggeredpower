@@ -66,9 +66,8 @@ adapter_imputation <- function() {
       first_stage_formula <- NULL
     }
 
-    # Call didimputation::did_imputation
-    # horizon = NULL gives static ATT, horizon = TRUE gives all event times
-    result <- didimputation::did_imputation(
+    # Common args for did_imputation
+    imp_args <- list(
       data = as.data.frame(data),
       yname = working_outcome,
       gname = group_var,
@@ -76,17 +75,42 @@ adapter_imputation <- function() {
       idname = id_var,
       first_stage = first_stage_formula,
       wname = weightsname,
-      cluster_var = cluster_var,
-      horizon = if (event_study) TRUE else NULL,
-      pretrends = if (event_study) TRUE else NULL
+      cluster_var = cluster_var
     )
 
-    # The result is already aggregated by did_imputation
-    # Extract the overall ATT
+    # Always get overall ATT (horizon = NULL → single-row result)
+    result_att <- do.call(didimputation::did_imputation,
+                          c(imp_args, list(horizon = NULL, pretrends = NULL)))
+
+    # Event study: second call with horizon = TRUE
+    event_study_result <- NULL
+    if (event_study) {
+      es_raw <- tryCatch({
+        do.call(didimputation::did_imputation,
+                c(imp_args, list(horizon = TRUE, pretrends = TRUE)))
+      }, error = function(e) {
+        warning(sprintf("Imputation event study failed: %s", e$message))
+        NULL
+      })
+
+      if (!is.null(es_raw) && nrow(es_raw) > 0) {
+        # Parse term column: "horizon::3" → rel_time = 3
+        rel_times <- as.integer(gsub(".*::(-?[0-9]+)$", "\\1", es_raw$term))
+        event_study_result <- data.table::data.table(
+          rel_time = rel_times,
+          att = es_raw$estimate,
+          se = es_raw$std.error
+        )
+        # Sort by relative time
+        event_study_result <- event_study_result[order(rel_time)]
+      }
+    }
+
     list(
-      estimate = result$estimate,
-      std.error = result$std.error,
-      raw = result,
+      estimate = result_att$estimate[1],
+      std.error = result_att$std.error[1],
+      event_study = event_study_result,
+      raw = result_att,
       metadata = list(
         method = "imputation",
         package = "didimputation",
@@ -103,7 +127,7 @@ adapter_imputation <- function() {
       att = result$estimate,
       se = result$std.error,
       model_name = "imputation",
-      event_study = NULL,  # didimputation doesn't return event study in same format
+      event_study = result$event_study,
       raw_result = result$raw,
       metadata = result$metadata
     )

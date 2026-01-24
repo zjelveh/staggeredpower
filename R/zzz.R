@@ -17,13 +17,7 @@
     register_adapter(adapter_did2s())
   }
 
-  # Linear ETWFE only (etwfe package wrapper, NOT Poisson)
-  if (requireNamespace("etwfe", quietly = TRUE)) {
-    register_adapter(adapter_etwfe())
-    # NOTE: adapter_etwfe_poisson() REMOVED — wrong specification (single .post dummy)
-  }
-
-  # Correct saturated Poisson ETWFE (Wooldridge 2023) via fixest
+  # Saturated Poisson ETWFE (Wooldridge 2023) via fixest
   if (requireNamespace("fixest", quietly = TRUE)) {
     register_adapter(adapter_etwfe_poisson_glm())  # registers as "etwfe_poisson"
   }

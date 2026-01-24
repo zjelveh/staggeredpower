@@ -27,6 +27,8 @@
 #' @param family Character. Distribution family for etwfe. NULL (default) for linear/Gaussian,
 #'   "poisson" for Poisson regression with multiplicative parallel trends assumption.
 #'   Only affects etwfe/etwfe_poisson adapters; ignored by other estimators.
+#' @param pretrend_test Logical. Whether to compute pre-trend tests (default FALSE).
+#'   When TRUE, adapters will compute Wald tests on pre-treatment coefficients.
 #' @param ... Additional arguments passed to adapters
 #'
 #' @return Named list of standard_estimate objects, one per model
@@ -54,7 +56,7 @@
 #'   outcome_type = "count",
 #'   pop_var = "population",
 #'   family = "poisson",
-#'   models_to_run = c("cs", "did2s", "etwfe", "etwfe_poisson")
+#'   models_to_run = c("cs", "imputation", "etwfe_poisson")
 #' )
 #' }
 estimate_models <- function(data,
@@ -71,6 +73,7 @@ estimate_models <- function(data,
                                outcome_type = NULL,
                                pop_var = NULL,
                                family = NULL,
+                               pretrend_test = FALSE,
                                ...) {
 
   # Validate inputs
@@ -97,7 +100,6 @@ estimate_models <- function(data,
 
   # Loop over requested models
   for (model_name in models_to_run) {
-    cat(sprintf("Estimating %s model...\n", model_name))
 
     # Get adapter
     adapter <- get_adapter(model_name)
@@ -109,29 +111,49 @@ estimate_models <- function(data,
       next
     }
 
-    # Fit model (adapter translates common params → package call)
-    raw_result <- adapter$fit(
-      data = data,
-      outcome_var = outcome_var,
-      time_var = time_var,
-      id_var = id_var,
-      group_var = group_var,
-      controls = controls,
-      cluster_var = cluster_var,
-      n_cores = n_cores,
-      event_study = event_study,
-      weightsname = weightsname,
-      outcome_type = outcome_type,
-      pop_var = pop_var,
-      family = family,
-      ...
-    )
+    # Wrap in tryCatch to handle per-model failures gracefully
+    # This allows other estimators to run even if one fails
+    model_result <- tryCatch({
+      # Fit model (adapter translates common params → package call)
+      raw_result <- adapter$fit(
+        data = data,
+        outcome_var = outcome_var,
+        time_var = time_var,
+        id_var = id_var,
+        group_var = group_var,
+        controls = controls,
+        cluster_var = cluster_var,
+        n_cores = n_cores,
+        event_study = event_study,
+        weightsname = weightsname,
+        outcome_type = outcome_type,
+        pop_var = pop_var,
+        family = family,
+        pretrend_test = pretrend_test,
+        ...
+      )
 
-    # Extract to standard format
-    std_result <- adapter$extract(raw_result)
+      # Extract to standard format
+      adapter$extract(raw_result)
 
-    # Store result
-    results[[model_name]] <- std_result
+    }, error = function(e) {
+      warning(sprintf("Model '%s' failed: %s", model_name, e$message))
+      # Return a failed standard_estimate with NA values
+      standard_estimate(
+        att = NA_real_,
+        se = NA_real_,
+        model_name = model_name,
+        event_study = NULL,
+        raw_result = NULL,
+        metadata = list(
+          error = TRUE,
+          error_message = e$message
+        )
+      )
+    })
+
+    # Store result (even if failed, to track what happened)
+    results[[model_name]] <- model_result
   }
 
   results
