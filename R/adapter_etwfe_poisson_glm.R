@@ -32,6 +32,8 @@ adapter_etwfe_poisson_glm <- function() {
                      pretrend_test = FALSE,
                      base_period = "varying",
                      allow_unbalanced_panel = FALSE,
+                     trend_type = "common",
+                     trend_order = 1L,
                      ...) {
 
     if (!requireNamespace("fixest", quietly = TRUE)) {
@@ -111,13 +113,26 @@ adapter_etwfe_poisson_glm <- function() {
 
     # --- Build formula for fixest ---
     rhs_main <- "gt_cell"
+
+    # Add control variables
     if (!is.null(controls)) {
       ctrl_exist <- controls[controls %in% names(dt)]
       if (length(ctrl_exist) > 0) {
         rhs_main <- paste0(rhs_main, " + ", paste(ctrl_exist, collapse = " + "))
       }
     }
-    rhs_fe <- paste0(id_var, " + ", time_var)
+
+    # Build fixed effects part - with or without unit-specific trends
+    if (trend_type == "unit_trend") {
+      # EXPERIMENTAL: Unit-specific linear trends
+      # WARNING: This may cause numerical issues (near-singular matrices) with many units.
+      warning("trend_type='unit_trend' is experimental and may cause numerical issues with many units")
+      # id_var[time_var] estimates unit FE + unit-specific slope on time
+      rhs_fe <- paste0(id_var, "[", time_var, "] + ", time_var)
+    } else {
+      # Common trends (default): just unit and time FEs
+      rhs_fe <- paste0(id_var, " + ", time_var)
+    }
     fml <- stats::as.formula(paste0(".count ~ ", rhs_main, " | ", rhs_fe))
 
     # --- Fit saturated Poisson ETWFE ---
@@ -212,7 +227,9 @@ adapter_etwfe_poisson_glm <- function() {
       cluster_var = cluster_var,
       mean_y_control = mean_y,
       outcome_type_input = ifelse(is.null(outcome_type), "rate (assumed)", outcome_type),
-      se_type = "clustered_fixest"
+      se_type = "clustered_fixest",
+      trend_type = trend_type,
+      trend_order = if (trend_type == "unit_trend") 1L else NA_integer_
     )
 
     # Return result

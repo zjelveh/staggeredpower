@@ -29,6 +29,13 @@
 #'   Only affects etwfe/etwfe_poisson adapters; ignored by other estimators.
 #' @param pretrend_test Logical. Whether to compute pre-trend tests (default FALSE).
 #'   When TRUE, adapters will compute Wald tests on pre-treatment coefficients.
+#' @param trend_type Character. Type of time trend assumption: "common" (default) for
+#'   standard parallel trends, or "unit_trend" for unit-specific linear trends.
+#'   **EXPERIMENTAL**: The "unit_trend" option has not been extensively tested and may
+#'   cause numerical issues (near-singular matrices) with many units. Use with caution.
+#'   Only affects imputation and etwfe_poisson adapters.
+#' @param trend_order Integer. Polynomial order for trends (default 1 = linear).
+#'   Currently only linear trends (order=1) are supported for unit_trend.
 #' @param ... Additional arguments passed to adapters
 #'
 #' @return Named list of standard_estimate objects, one per model
@@ -74,6 +81,8 @@ estimate_models <- function(data,
                                pop_var = NULL,
                                family = NULL,
                                pretrend_test = FALSE,
+                               trend_type = c("common", "cohort_trend"),
+                               trend_order = 1L,
                                ...) {
 
   # Validate inputs
@@ -84,6 +93,14 @@ estimate_models <- function(data,
     is.character(time_var),
     is.character(group_var)
   )
+
+  # Validate trend parameters
+
+  trend_type <- match.arg(trend_type)
+  trend_order <- as.integer(trend_order)
+  if (trend_type == "cohort_trend" && trend_order < 1L) {
+    stop("trend_order must be >= 1 when trend_type = 'cohort_trend'")
+  }
 
   # Default cluster to id_var
   if (is.null(cluster_var)) {
@@ -130,6 +147,8 @@ estimate_models <- function(data,
         pop_var = pop_var,
         family = family,
         pretrend_test = pretrend_test,
+        trend_type = trend_type,
+        trend_order = trend_order,
         ...
       )
 

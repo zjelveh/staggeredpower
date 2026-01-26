@@ -14,6 +14,15 @@
 #' @param n_sims Number of simulations
 #' @param min_year Numeric. Minimum year to include (optional, default NULL = no minimum)
 #' @param max_year Numeric. Maximum year to include (optional, default NULL = no maximum)
+#' @param pretrend_test Logical. Whether to compute pre-trend tests (default FALSE)
+#' @param outcome_type Character. Type of outcome: "rate" or "count" (default NULL = rate)
+#' @param pop_var Character. Population variable name for Poisson models (default NULL)
+#' @param family Character. Distribution family for etwfe: NULL (linear) or "poisson" (default NULL)
+#' @param trend_type Character. Type of time trend for PTA enforcement: 'common' (default) uses
+#'   standard TWFE with common time effects for all cohorts; 'cohort_trend' estimates cohort-specific
+#'   polynomial time trends that can extrapolate to post-treatment periods. Ignored for pta_type='cs'.
+#' @param trend_order Integer. For trend_type='cohort_trend', the polynomial order (1=linear,
+#'   2=quadratic, etc.). Default 1. Ignored when trend_type='common'.
 #' @export
 run_power_analysis <- function(data_clean,
                                unit_var,
@@ -30,7 +39,13 @@ run_power_analysis <- function(data_clean,
                                models_to_run=c('cs', 'imputation'),
                                n_sims = 100,
                                min_year = NULL,
-                               max_year = NULL) {
+                               max_year = NULL,
+                               pretrend_test = FALSE,
+                               outcome_type = NULL,
+                               pop_var = NULL,
+                               family = NULL,
+                               trend_type = "common",
+                               trend_order = 1L) {
 
   # Check if parallel backend is registered
   # run_power_analysis uses %dopar% for Monte Carlo simulations
@@ -81,6 +96,10 @@ run_power_analysis <- function(data_clean,
   
   data_clean_copy[, uq_row:=paste(get(unit_var), get(time_var))]
 
+  # Map pta_type to enforce_PTA method
+  # "cs" -> "CS", "imputation" -> "imputation", "poisson" -> "poisson"
+  enforce_method <- if (pta_type == "cs") "CS" else pta_type
+
   pta_enforced_orig = enforce_PTA(
     data_clean_copy,
     unit = unit_var,
@@ -88,7 +107,11 @@ run_power_analysis <- function(data_clean,
     time = time_var,
     outcome = outcome,
     controls = controls,
-    method = ifelse(pta_type == "cs", "CS", pta_type)
+    method = enforce_method,
+    pop_var = pop_var,
+    outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
+    trend_type = trend_type,
+    trend_order = trend_order
   )
 
     
@@ -106,7 +129,12 @@ run_power_analysis <- function(data_clean,
           time = time_var,
           outcome = outcome,
           controls = controls,
-          method = ifelse(pta_type == "cs", "CS", pta_type))
+          method = enforce_method,
+          pop_var = pop_var,
+          outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
+          trend_type = trend_type,
+          trend_order = trend_order
+        )
         
         pta_enforced[, bound_error:= ifelse(counterfactual<0, 1, 0)]
         pta_enforced[bound_error==1, counterfactual:=0]
@@ -173,8 +201,13 @@ run_power_analysis <- function(data_clean,
     rez_list =
       foreach(sim = 1:n_sims,
               .packages = c('data.table', 'fixest', 'did2s',
-                            'did', 'didimputation', 'staggeredpower')) %dopar% 
+                            'did', 'didimputation', 'etwfe', 'staggeredpower')) %dopar%
       {
+        # CRITICAL: Disable fixest internal threading to prevent race conditions
+        # when running multiple simulations per worker. Without this, fepois()
+        # causes heap corruption. See: https://github.com/lrberge/fixest/issues/157
+        fixest::setFixest_nthreads(1)
+
         new_temp = list()
         
         # Generate counterfactuals for each simulation
@@ -185,7 +218,12 @@ run_power_analysis <- function(data_clean,
           time = time_var,
           outcome = outcome,
           controls = controls,
-          method = ifelse(pta_type == "cs", "CS", pta_type))
+          method = enforce_method,
+          pop_var = pop_var,
+          outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
+          trend_type = trend_type,
+          trend_order = trend_order
+        )
         # Now scale the counterfactual outcomes within the simulation
         counterfactual_data = copy(pta_enforced_sim)
         counterfactual_data[, y_cf := counterfactual]
@@ -204,7 +242,17 @@ run_power_analysis <- function(data_clean,
         } else{
           counterfactual_data[get(treat_ind_var) == 1, y_cf := y_cf * percent_effect]
         }
-        
+
+        # Enforce realistic bounds on counterfactual outcomes
+        # Floor at 0: counts/rates cannot be negative
+        counterfactual_data[y_cf < 0, y_cf := 0]
+
+        # Ceiling at 1 for share/proportion outcomes (cannot exceed 100%)
+        # Detect share outcomes by name (contains "share" case-insensitive)
+        if (grepl("share", outcome, ignore.case = TRUE)) {
+          counterfactual_data[y_cf > 1, y_cf := 1]
+        }
+
         model_data = copy(counterfactual_data)
 
         if(sum(model_data[[treat_ind_var]])>0){
@@ -218,7 +266,11 @@ run_power_analysis <- function(data_clean,
             controls = controls,
             models_to_run = models_to_run,
             cluster_var = unit_var,
-            n_cores = 1  # Already running in parallel across simulations
+            n_cores = 1,  # Already running in parallel across simulations
+            pretrend_test = pretrend_test,
+            outcome_type = outcome_type,
+            pop_var = pop_var,
+            family = family
           )
           # drop groups
           if(is.null(transform_outcome)){
@@ -278,10 +330,8 @@ run_power_analysis <- function(data_clean,
           }
           
           returnz = list(results=rbindlist(new_temp))
-          
-        } 
-          
-        
+        }
+
         return(returnz) 
       }
     
