@@ -30,6 +30,7 @@ adapter_cs <- function() {
                      pop_var = NULL,
                      base_period = "varying",
                      allow_unbalanced_panel = FALSE,
+                     est_method = "dr",  # "dr" (doubly robust), "reg" (regression), or "ipw"
                      family = NULL,  # ignored by CS, but accepted for compatibility
                      ...) {
 
@@ -84,7 +85,7 @@ adapter_cs <- function() {
       cores = n_cores,
       control_group = "notyettreated",
       anticipation = 0,
-      est_method = "dr",
+      est_method = est_method,
       clustervars = cluster_var,
       base_period = base_period,
       allow_unbalanced_panel = allow_unbalanced_panel,
@@ -176,9 +177,14 @@ adapter_cs <- function() {
     }
 
     # Build metadata
+    est_method_label <- switch(est_method,
+                               dr = "doubly_robust",
+                               reg = "regression",
+                               ipw = "inverse_probability_weighted",
+                               est_method)
     metadata <- list(
       control_group = "notyettreated",
-      estimator = "doubly_robust",
+      estimator = est_method_label,
       pt_assumption = "additive (level scale)",
       transformation_applied = transformation_applied,
       outcome_type_input = ifelse(is.null(outcome_type), "rate (assumed)", outcome_type)
@@ -206,7 +212,7 @@ adapter_cs <- function() {
     } else {
       list(
         control_group = "notyettreated",
-        estimator = "doubly_robust"
+        estimator = "unknown"
       )
     }
 
