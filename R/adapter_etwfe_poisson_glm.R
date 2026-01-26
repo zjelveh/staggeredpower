@@ -281,11 +281,22 @@ adapter_etwfe_poisson_glm <- function() {
     # Returns rate per 100k (same scale as input rate data)
     mean_y <- mean(dt[gt_cell == "ref", .count / exp(.log_pop) * 1e5], na.rm = TRUE)
 
+    # --- Level-scale effect (comparable to etwfe package's emfx output) ---
+    # ATT in level units = mean_y_control * att_pct
+    # This represents the change in rate per 100k (or count if outcome_type='count')
+    att_level <- mean_y * att_pct
+    # SE via delta method: d(mean_y * att_pct)/d(delta) = mean_y * d(att_pct)/d(delta)
+    #                                                    = mean_y * w * exp(delta)
+    se_level <- mean_y * se_pct
+
     # Build metadata
     metadata <- list(
       # Primary estimand: arithmetic mean of percent changes (comparable to linear estimators)
       att_pct = att_pct,
       att_se_pct = se_pct,
+      # Level-scale effect (comparable to etwfe package's emfx output)
+      att_level = att_level,        # Change in rate per 100k
+      att_se_level = se_level,
       # Secondary: geometric mean (log-scale average) for reference
       att_log_geometric = att_log,
       att_se_log = se_log,
