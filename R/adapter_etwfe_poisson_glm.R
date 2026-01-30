@@ -262,19 +262,9 @@ adapter_etwfe_poisson_glm <- function() {
         se_pct = es_se_pct
       )
 
-      # Add the omitted reference period (e = -1) with zeros
-      # This makes plotting and pre-trend checks cleaner
-      if (!(-1L %in% unique_e)) {
-        ref_row <- data.table::data.table(
-          rel_time = -1L,
-          att = 0,
-          se = 0,
-          att_pct = 0,
-          se_pct = 0
-        )
-        event_study_result <- data.table::rbindlist(list(ref_row, event_study_result))
-        event_study_result <- event_study_result[order(rel_time)]
-      }
+      # Reference period (e = -1) is omitted by design: it is the
+      # normalisation baseline, not an estimated coefficient.  Plotting
+      # code uses a vertical reference line at x = -0.5 instead.
     }
 
     # Mean outcome in control group (for interpretability)
