@@ -23,6 +23,12 @@
 #'   polynomial time trends that can extrapolate to post-treatment periods. Ignored for pta_type='cs'.
 #' @param trend_order Integer. For trend_type='cohort_trend', the polynomial order (1=linear,
 #'   2=quadratic, etc.). Default 1. Ignored when trend_type='common'.
+#' @param noise_spec List. Noise engine configuration. Defaults to \code{list(engine = "none")}
+#'   for deterministic benchmark. Use \code{list(engine = "iid")} for legacy stochastic behavior.
+#'   See \code{\link{normalize_noise_spec}} for full options.
+#' @param design_resample Character. Design-level resampling: "none" (default) or
+#'   "cluster_bootstrap" (not yet implemented). When engine="none", this is the only way
+#'   to get a rejection probability without outcome noise.
 #' @export
 run_power_analysis <- function(data_clean,
                                unit_var,
@@ -46,7 +52,27 @@ run_power_analysis <- function(data_clean,
                                family = NULL,
                                trend_type = "common",
                                trend_order = 1L,
-                               noise_spec = NULL) {
+                               noise_spec = list(engine = "none"),
+                               design_resample = "none") {
+
+  # Normalize and validate noise spec
+  noise_spec <- normalize_noise_spec(noise_spec)
+
+  # Validate design_resample
+  design_resample <- match.arg(design_resample, c("none", "cluster_bootstrap"))
+  if (design_resample == "cluster_bootstrap") {
+    stop("design_resample='cluster_bootstrap' is not yet implemented. ",
+         "Use engine='iid' or engine='ar1' for stochastic power analysis.")
+  }
+
+  # Deterministic guard: engine="none" produces identical sims, so n_sims > 1 is waste
+
+  if (noise_spec[["engine"]] == "none" && n_sims > 1L) {
+    n_sims <- 1L
+    message("engine='none' produces deterministic data; setting n_sims=1. ",
+            "To get a rejection probability without outcome noise, use ",
+            "design_resample='cluster_bootstrap'.")
+  }
 
   # Check if parallel backend is registered
   # run_power_analysis uses %dopar% for Monte Carlo simulations
@@ -56,7 +82,7 @@ run_power_analysis <- function(data_clean,
 
   n_workers <- foreach::getDoParWorkers()
 
-  if (n_workers == 1) {
+  if (n_workers == 1 && n_sims > 1L) {
     warning(
       "\n================================================================================\n",
       "No parallel backend detected. Monte Carlo simulations will run SEQUENTIALLY.\n",
@@ -72,7 +98,7 @@ run_power_analysis <- function(data_clean,
       call. = FALSE,
       immediate. = TRUE
     )
-  } else {
+  } else if (n_workers > 1) {
     cat(sprintf("Using %d cores for Monte Carlo simulations (%d total sims)\n",
                 n_workers, n_sims))
   }
@@ -122,45 +148,58 @@ run_power_analysis <- function(data_clean,
       pta_enforced_orig[bound_error==1, counterfactual:=0]
       pta_enforced_orig[, na_error:=ifelse(is.na(counterfactual), 1, 0)]
 
-      while(!continue){
-        # PTA Violation Check (run once before the simulation loop)
-        pta_enforced = enforce_PTA(
-          data_clean_copy,
-          unit = unit_var,
-          group = group_var,
-          time = time_var,
-          outcome = outcome,
-          controls = controls,
-          method = enforce_method,
-          pop_var = pop_var,
-          outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
-          trend_type = trend_type,
-          trend_order = trend_order,
-          noise_spec = noise_spec
-        )
-        
-        pta_enforced[, bound_error:= ifelse(counterfactual<0, 1, 0)]
-        pta_enforced[bound_error==1, counterfactual:=0]
-        pta_enforced[, na_error:=ifelse(is.na(counterfactual), 1, 0)]
-
-
-        # Only filter by max_year if specified
-        max_year_check <- if (!is.null(max_year)) max_year else max(pta_enforced[[time_var]])
-        pta_violations = copy(pta_enforced[bound_error == 1 | (na_error == 1 & get(time_var) < max_year_check)])
-        
-        if(nrow(pta_violations)==0){
-          continue=TRUE
-        } else{
-          data_clean_copy = data_clean_copy[!get(unit_var)%in%pta_violations[[unit_var]]]
-          
-          units_to_drop = sort(c(units_to_drop, unique(pta_violations[[unit_var]])))
+      if (noise_spec[["engine"]] == "none") {
+        # Deterministic: single-pass violation check
+        # Rerunning enforce_PTA won't change anything when noise is off,
+        # so we use pta_enforced_orig directly (no second enforce_PTA call).
+        max_year_check <- if (!is.null(max_year)) max_year else max(pta_enforced_orig[[time_var]])
+        pta_violations <- copy(pta_enforced_orig[bound_error == 1 |
+                                (na_error == 1 & get(time_var) < max_year_check)])
+        if (nrow(pta_violations) > 0) {
+          data_clean_copy <- data_clean_copy[!get(unit_var) %in% pta_violations[[unit_var]]]
+          units_to_drop <- sort(unique(pta_violations[[unit_var]]))
         }
-        if(nrow(data_clean_copy)==0){
-          continue=TRUE
+        pta_enforced <- pta_enforced_orig
+
+      } else {
+        # Stochastic: iterative while loop (re-enforce and re-check until clean)
+        while(!continue){
+          pta_enforced = enforce_PTA(
+            data_clean_copy,
+            unit = unit_var,
+            group = group_var,
+            time = time_var,
+            outcome = outcome,
+            controls = controls,
+            method = enforce_method,
+            pop_var = pop_var,
+            outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
+            trend_type = trend_type,
+            trend_order = trend_order,
+            noise_spec = noise_spec
+          )
+
+          pta_enforced[, bound_error:= ifelse(counterfactual<0, 1, 0)]
+          pta_enforced[bound_error==1, counterfactual:=0]
+          pta_enforced[, na_error:=ifelse(is.na(counterfactual), 1, 0)]
+
+          # Only filter by max_year if specified
+          max_year_check <- if (!is.null(max_year)) max_year else max(pta_enforced[[time_var]])
+          pta_violations = copy(pta_enforced[bound_error == 1 | (na_error == 1 & get(time_var) < max_year_check)])
+
+          if(nrow(pta_violations)==0){
+            continue=TRUE
+          } else{
+            data_clean_copy = data_clean_copy[!get(unit_var)%in%pta_violations[[unit_var]]]
+
+            units_to_drop = sort(c(units_to_drop, unique(pta_violations[[unit_var]])))
+          }
+          if(nrow(data_clean_copy)==0){
+            continue=TRUE
+          }
         }
       }
-      
-    
+
   }
 
   share_rows_dropped = 1 - (nrow(data_clean_copy) / nrow(data_clean_full))
@@ -329,7 +368,10 @@ run_power_analysis <- function(data_clean,
               share_rows_dropped = share_rows_dropped,
               share_units_dropped = share_units_dropped,
               share_groups_dropped = share_groups_dropped,
-              outcome_transformed = ifelse(is.null(transform_outcome), 'No', transform_outcome)
+              outcome_transformed = ifelse(is.null(transform_outcome), 'No', transform_outcome),
+              noise_engine = noise_spec[["engine"]],
+              obs_model = noise_spec[["obs_model"]],
+              design_resample = design_resample
             )
           }
           

@@ -33,6 +33,11 @@
 #'   For most use cases, parallelization at the Monte Carlo simulation level (via doParallel backend)
 #'   is more efficient than grid-level parallelization.
 #' @param n_cores Number of cores if parallel=TRUE. Default: NULL (uses all available - 1)
+#' @param noise_spec List. Noise engine configuration. Defaults to \code{list(engine = "none")}
+#'   for deterministic benchmark. Use \code{list(engine = "iid")} for legacy stochastic behavior.
+#'   See \code{\link{normalize_noise_spec}} for full options.
+#' @param design_resample Character. Design-level resampling: "none" (default) or
+#'   "cluster_bootstrap" (not yet implemented). Passed through to \code{\link{run_power_analysis}}.
 #'
 #' @return A list with three components:
 #' \describe{
@@ -147,7 +152,8 @@ run_power_grid <- function(data_clean,
                           max_year = NULL,
                           parallel = FALSE,
                           n_cores = NULL,
-                          noise_spec = NULL) {
+                          noise_spec = list(engine = "none"),
+                          design_resample = "none") {
 
   # Load required packages
   require(data.table)
@@ -269,7 +275,8 @@ run_power_grid <- function(data_clean,
           n_sims = n_sims,
           min_year = min_year,
           max_year = max_year,
-          noise_spec = noise_spec
+          noise_spec = noise_spec,
+          design_resample = design_resample
         )
 
         # Add specification identifiers to results
