@@ -45,7 +45,8 @@ run_power_analysis <- function(data_clean,
                                pop_var = NULL,
                                family = NULL,
                                trend_type = "common",
-                               trend_order = 1L) {
+                               trend_order = 1L,
+                               noise_spec = NULL) {
 
   # Check if parallel backend is registered
   # run_power_analysis uses %dopar% for Monte Carlo simulations
@@ -111,7 +112,8 @@ run_power_analysis <- function(data_clean,
     pop_var = pop_var,
     outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
     trend_type = trend_type,
-    trend_order = trend_order
+    trend_order = trend_order,
+    noise_spec = noise_spec
   )
 
     
@@ -133,7 +135,8 @@ run_power_analysis <- function(data_clean,
           pop_var = pop_var,
           outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
           trend_type = trend_type,
-          trend_order = trend_order
+          trend_order = trend_order,
+          noise_spec = noise_spec
         )
         
         pta_enforced[, bound_error:= ifelse(counterfactual<0, 1, 0)]
@@ -222,7 +225,8 @@ run_power_analysis <- function(data_clean,
           pop_var = pop_var,
           outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
           trend_type = trend_type,
-          trend_order = trend_order
+          trend_order = trend_order,
+          noise_spec = noise_spec
         )
         # Now scale the counterfactual outcomes within the simulation
         counterfactual_data = copy(pta_enforced_sim)

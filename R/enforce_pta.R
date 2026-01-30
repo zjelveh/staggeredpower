@@ -20,6 +20,16 @@
 #'   time trends that can extrapolate to post-treatment periods.
 #' @param trend_order Integer. For trend_type='cohort_trend', the polynomial order (1=linear,
 #'   2=quadratic, etc.). Default 1. Ignored when trend_type='common'.
+#' @param noise_spec List. Noise engine configuration. NULL uses defaults (iid Normal, same
+#'   as legacy behavior). See \code{\link{normalize_noise_spec}} for options:
+#'   \describe{
+#'     \item{engine}{"none" (deterministic), "iid" (default, legacy), "ar1", or "ar1_common"}
+#'     \item{innovation}{"normal" (default) or "empirical" (resample from residuals)}
+#'     \item{common_shock}{TRUE/FALSE. Whether to include common calendar-year shocks.}
+#'     \item{rho}{NULL (auto-estimate) or numeric in [0, 0.99]. AR(1) persistence parameter.}
+#'     \item{cs_pool}{"global" (default) or "cohort". How to pool CS innovations.}
+#'     \item{obs_model}{"deterministic" or "poisson" (default). For Poisson PTA only.}
+#'   }
 #'
 #' @return A data.frame with enforced parallel trends (includes 'counterfactual' column)
 #'
@@ -69,10 +79,12 @@ enforce_PTA <- function(df, unit, group, time, outcome,
                         pop_var = NULL,
                         outcome_type = "rate",
                         trend_type = c("common", "cohort_trend"),
-                        trend_order = 1L) {
+                        trend_order = 1L,
+                        noise_spec = NULL) {
   method <- match.arg(method)
   trend_type <- match.arg(trend_type)
   trend_order <- as.integer(trend_order)
+  noise_spec <- normalize_noise_spec(noise_spec)
 
   # Validate trend_order
 
@@ -82,14 +94,14 @@ enforce_PTA <- function(df, unit, group, time, outcome,
 
   if (method == "imputation") {
     enforce_PTA_imputation(df, unit, group, time, outcome, controls, seed,
-                           trend_type, trend_order)
+                           trend_type, trend_order, noise_spec)
   } else if (method == "CS") {
     # CS already has cohort-specific trends implicitly via not-yet-treated controls
     # trend_type and trend_order are ignored for CS method
-    enforce_PTA_CS(df, unit, group, time, outcome, controls, seed)
+    enforce_PTA_CS(df, unit, group, time, outcome, controls, seed, noise_spec)
   } else if (method == "poisson") {
     enforce_PTA_poisson(df, unit, group, time, outcome, controls, seed,
-                        pop_var, outcome_type, trend_type, trend_order)
+                        pop_var, outcome_type, trend_type, trend_order, noise_spec)
   }
 }
 
@@ -134,7 +146,9 @@ enforce_PTA <- function(df, unit, group, time, outcome,
 #'
 #' @export
 enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NULL, seed = NULL,
-                                   trend_type = "common", trend_order = 1L) {
+                                   trend_type = "common", trend_order = 1L,
+                                   noise_spec = NULL) {
+  noise_spec <- normalize_noise_spec(noise_spec)
   if (!is.null(seed)) set.seed(seed)
 
   df <- copy(df)
@@ -203,6 +217,9 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
   mod_fe <- feols(fe_formula, data = df_untreated)
   resid_sd <- sigma(mod_fe)
 
+  # Calibrate noise engine
+  noise_calib <- calibrate_noise_imputation(mod_fe, df_untreated, unit_col, time_col, noise_spec)
+
   # Extract fixed effects
   # Try to preserve the original data type
   unit_names <- names(fixef(mod_fe)[[unit_col]])
@@ -232,9 +249,9 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
   # Initialize counterfactual as observed
   df[, counterfactual := get(outcome_col)]
 
-  # Predict counterfactuals for treated
+  # Predict deterministic counterfactual mu_hat for treated, then add noise
   if (trend_type == "common") {
-    # Standard approach: alpha_i + gamma_t + X*beta + noise
+    # Standard approach: mu_hat = alpha_i + gamma_t + X*beta
     if (!is.null(controls) && length(controls) > 0) {
       control_effects <- coef(mod_fe)[controls]
       control_effects[is.na(control_effects)] <- 0
@@ -242,20 +259,16 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
       df[treated == TRUE, control_effect :=
            Reduce(`+`, Map(function(x, y) get(x) * y, controls, control_effects))]
 
-      df[treated == TRUE, counterfactual := unit_effect + time_effect + control_effect +
-           rnorm(.N, mean=0, sd=resid_sd)]
+      df[treated == TRUE, .mu_hat := unit_effect + time_effect + control_effect]
       df[, control_effect := NULL]
     } else {
-      df[treated == TRUE, counterfactual := unit_effect + time_effect +
-           rnorm(.N, mean=0, sd=resid_sd)]
+      df[treated == TRUE, .mu_hat := unit_effect + time_effect]
     }
   } else if (trend_type == "cohort_trend") {
     # Extract all coefficients from model
     all_coefs <- coef(mod_fe)
 
     # Calculate trend effect for each treated observation
-    # Use the pre-created trend variables (.trend_c{cohort}_d{deg})
-    # Trend effect = sum over all trend vars of (coef * value)
     df[treated == TRUE, .trend_effect := {
       effect <- numeric(.N)
       for (var_name in cohort_trend_vars) {
@@ -266,7 +279,7 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
       effect
     }]
 
-    # Add control effects if present and compute counterfactual
+    # Compute mu_hat with or without controls
     if (!is.null(controls) && length(controls) > 0) {
       control_coefs <- all_coefs[controls]
       control_coefs[is.na(control_coefs)] <- 0
@@ -274,14 +287,10 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
       df[treated == TRUE, .control_effect :=
            Reduce(`+`, Map(function(x, y) get(x) * y, controls, control_coefs))]
 
-      df[treated == TRUE, counterfactual :=
-           unit_effect + time_effect + .trend_effect + .control_effect +
-           rnorm(.N, mean=0, sd=resid_sd)]
+      df[treated == TRUE, .mu_hat := unit_effect + time_effect + .trend_effect + .control_effect]
       df[, .control_effect := NULL]
     } else {
-      df[treated == TRUE, counterfactual :=
-           unit_effect + time_effect + .trend_effect +
-           rnorm(.N, mean=0, sd=resid_sd)]
+      df[treated == TRUE, .mu_hat := unit_effect + time_effect + .trend_effect]
     }
 
     # Cleanup cohort_trend-specific columns
@@ -290,6 +299,21 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
     if (length(existing_cols) > 0) {
       df[, (existing_cols) := NULL]
     }
+  }
+
+  # Draw noise and apply to mu_hat
+  treated_rows <- df[treated == TRUE]
+  if (nrow(treated_rows) > 0) {
+    eps_dt <- draw_noise(noise_calib,
+                          units = treated_rows[[unit_col]],
+                          times = treated_rows[[time_col]])
+    # Merge eps into df (keyed by unit + time)
+    eps_dt_named <- copy(eps_dt)
+    setnames(eps_dt_named, c("unit", "time"), c(unit_col, time_col))
+    df[eps_dt_named, on = c(unit_col, time_col), .noise_eps := i.eps]
+    df[is.na(.noise_eps), .noise_eps := 0]
+    df[treated == TRUE, counterfactual := .mu_hat + .noise_eps]
+    df[, c(".mu_hat", ".noise_eps") := NULL]
   }
 
   # Cleanup common columns
@@ -301,7 +325,9 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
 
 
 
-enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed = NULL) {
+enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed = NULL,
+                            noise_spec = NULL) {
+  noise_spec <- normalize_noise_spec(noise_spec)
   if (!is.null(seed)) set.seed(seed)
 
   # Create local copies of variable names for data.table scoping
@@ -309,93 +335,134 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   group_col <- group
   time_col <- time
   outcome_col <- outcome
+  engine <- noise_spec$engine
 
   # Get key parameters
-  groups = sort(unique(df[[group_col]]))
-  max_year = max(df[[time_col]])
+  groups <- sort(unique(df[[group_col]]))
+  max_year <- max(df[[time_col]])
 
   # Make a copy to store counterfactuals
-  df_new = copy(df)
+  df_new <- copy(df)
   df_new[, counterfactual := get(outcome_col)]
 
-  # Calculate rel_pass_var if not present
+  # Calculate rel_pass if not present
   if (!"rel_pass" %in% names(df_new)) {
     df_new[, rel_pass := get(time_col) - get(group_col)]
   }
 
-  # Iterate over each group
-  for(g in groups) {
-    # Get the max relative time for this group
-    max_rel_pass = max(df_new[get(group_col)==g]$rel_pass, na.rm=TRUE)
+  # --- Pre-compute calibration for AR(1)/AR(1)+common engines ---
+  # For ar1/ar1_common, we need to calibrate from control residuals first,
+  # then pre-generate shock paths for all treated units
+  shock_lookup <- NULL
+  if (engine %in% c("ar1", "ar1_common")) {
+    # Calibrate noise from control long-diff residuals
+    noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
+                                       controls, noise_spec)
 
-    # For each relative period after treatment
-    for(rp in 0:max_rel_pass) {
+    # Build treated_units_by_cohort and max_rp_by_cohort
+    treated_units_by_cohort <- list()
+    max_rp_by_cohort <- list()
+    for (g in groups) {
+      g_char <- as.character(g)
+      treated_units_by_cohort[[g_char]] <- unique(df[get(group_col) == g][[unit_col]])
+      max_rp_by_cohort[[g_char]] <- max(df_new[get(group_col) == g]$rel_pass, na.rm = TRUE)
+    }
 
-      curr_time = g + rp
-      if(curr_time <= max_year) {
-        pre_time = g - 1
+    # Pre-generate all shock paths
+    shock_dt <- draw_noise_cs(noise_calib, treated_units_by_cohort, max_rp_by_cohort)
+    # Create lookup keyed by (unit, cohort, rp)
+    data.table::setkeyv(shock_dt, c("unit", "cohort", "rp"))
+    shock_lookup <- shock_dt
 
-        # Get control group data - those not yet treated at curr_time
-        # IMPORTANT: Also exclude units with year_passed > max_year, as did::att_gt
-        # excludes units whose treatment date is beyond the data range.
-        # This ensures the control group matches what did::att_gt will use.
-        control_data = df[(get(group_col) > curr_time & get(group_col) <= max_year) | is.na(get(group_col))]
+  } else if (engine == "iid") {
+    # For iid, we still need per-cell resid_sd — calibrate to get those
+    noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
+                                       controls, noise_spec)
+  }
 
-        # Get pre/post periods for controls
-        control_pre = control_data[get(time_col) == pre_time]
-        control_post = control_data[get(time_col) == curr_time]
+  # --- Main (g, rp) loop ---
+  for (g in groups) {
+    max_rel_pass <- max(df_new[get(group_col) == g]$rel_pass, na.rm = TRUE)
 
-        # Merge pre/post for controls to calculate changes
-        control_changes = merge(control_pre, control_post,
-                                by=c(unit_col),
-                                suffixes=c("_pre", "_post"))
+    for (rp in 0:max_rel_pass) {
+      curr_time <- g + rp
+      if (curr_time > max_year) next
+      pre_time <- g - 1
 
-        control_changes[, delta_y := get(paste0(outcome_col, "_post")) -
-                          get(paste0(outcome_col, "_pre"))]
+      # Control pool: not-yet-treated at curr_time OR never-treated
+      control_data <- df[(get(group_col) > curr_time & get(group_col) <= max_year) | is.na(get(group_col))]
 
-        # Use pre-period controls for regression
-        if(!is.null(controls) && length(controls) > 0) {
-          # Use the _pre version of controls from merge
-          X_control = as.matrix(cbind(1, control_changes[, paste0(controls, "_pre"), with=FALSE]))
+      # Control long-diffs
+      control_pre <- control_data[get(time_col) == pre_time]
+      control_post <- control_data[get(time_col) == curr_time]
+
+      control_changes <- merge(control_pre, control_post,
+                                by = c(unit_col),
+                                suffixes = c("_pre", "_post"))
+
+      control_changes[, delta_y := get(paste0(outcome_col, "_post")) -
+                        get(paste0(outcome_col, "_pre"))]
+
+      # Build regression matrix
+      if (!is.null(controls) && length(controls) > 0) {
+        X_control <- as.matrix(cbind(1, control_changes[, paste0(controls, "_pre"), with = FALSE]))
+      } else {
+        X_control <- as.matrix(rep(1, nrow(control_changes)))
+      }
+
+      if (length(control_changes$delta_y) > 0) {
+        # Fit regression
+        reg_model <- fastglm::fastglm(
+          x = X_control,
+          y = control_changes$delta_y,
+          family = stats::gaussian(link = "identity")
+        )
+
+        # Per-cell residual SD (used for iid engine)
+        if (reg_model$df.residual == 0) {
+          resid_sd <- sqrt(sum(reg_model$residuals^2) / 1)
         } else {
-          X_control = as.matrix(rep(1, nrow(control_changes)))
+          resid_sd <- sqrt(sum(reg_model$residuals^2) / reg_model$df.residual)
         }
 
-        if(length(control_changes$delta_y)>0){
-          # Fit regression of changes on covariates for control group
-          reg_model = fastglm::fastglm(
-            x = X_control,
-            y = control_changes$delta_y,
-            family = stats::gaussian(link = "identity")
-          )
+        # Get treated units at pre-treatment period
+        treated_pre <- df[get(group_col) == g & get(time_col) == pre_time]
 
-          if(reg_model$df.residual==0){
-            resid_sd <- sqrt(sum(reg_model$residuals^2) / 1)
-          } else{
-            resid_sd <- sqrt(sum(reg_model$residuals^2) / reg_model$df.residual)
-          }
-
-          # Get treated group data at pre-treatment period
-          treated_pre = df[get(group_col) == g & get(time_col) == pre_time]
-
-          # Use pre-period controls for treated units
-          if(!is.null(controls) && length(controls) > 0) {
-            X_treated = as.matrix(cbind(1, treated_pre[, ..controls]))
-          } else {
-            X_treated = as.matrix(rep(1, nrow(treated_pre)))
-          }
-
-          # Predict counterfactual changes
-          predicted_changes = as.vector(X_treated %*% reg_model$coefficients)
-
-          # Calculate counterfactual outcomes
-          counterfactuals = treated_pre[[outcome_col]] + predicted_changes +
-            rnorm(length(predicted_changes), mean=0, sd=resid_sd)
-
-          # Update counterfactual values
-          df_new[get(group_col) == g & get(time_col) == curr_time,
-                 counterfactual := counterfactuals]
+        # Build regression matrix for treated
+        if (!is.null(controls) && length(controls) > 0) {
+          X_treated <- as.matrix(cbind(1, treated_pre[, ..controls]))
+        } else {
+          X_treated <- as.matrix(rep(1, nrow(treated_pre)))
         }
+
+        # Predict deterministic changes
+        predicted_changes <- as.vector(X_treated %*% reg_model$coefficients)
+
+        # Deterministic mu_hat
+        mu_hat <- treated_pre[[outcome_col]] + predicted_changes
+
+        # Apply noise based on engine
+        if (engine == "none") {
+          counterfactuals <- mu_hat
+        } else if (engine == "iid") {
+          counterfactuals <- mu_hat + stats::rnorm(length(mu_hat), mean = 0, sd = resid_sd)
+        } else {
+          # ar1 or ar1_common: look up pre-computed cumulated shocks
+          treated_units <- treated_pre[[unit_col]]
+          eps_vals <- numeric(length(treated_units))
+          for (idx in seq_along(treated_units)) {
+            uid <- treated_units[idx]
+            match_row <- shock_lookup[.(uid, g, rp)]
+            if (nrow(match_row) > 0 && !is.na(match_row$eps_ld[1])) {
+              eps_vals[idx] <- match_row$eps_ld[1]
+            }
+          }
+          counterfactuals <- mu_hat + eps_vals
+        }
+
+        # Update counterfactual values
+        df_new[get(group_col) == g & get(time_col) == curr_time,
+               counterfactual := counterfactuals]
       }
     }
   }
@@ -456,7 +523,9 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
 enforce_PTA_poisson <- function(df, unit, group, time, outcome,
                                  controls = NULL, seed = NULL,
                                  pop_var = NULL, outcome_type = "rate",
-                                 trend_type = "common", trend_order = 1L) {
+                                 trend_type = "common", trend_order = 1L,
+                                 noise_spec = NULL) {
+  noise_spec <- normalize_noise_spec(noise_spec)
 
   # Constants
   RATE_SCALE <- 100000
@@ -572,6 +641,10 @@ enforce_PTA_poisson <- function(df, unit, group, time, outcome,
     stop(sprintf("Poisson fixed effects model failed: %s", e$message))
   })
 
+  # Calibrate noise engine (log scale)
+  noise_calib <- calibrate_noise_poisson(mod_pois, df_untreated, working_outcome,
+                                          pop_var, unit_col, time_col, noise_spec)
+
   # Extract fixed effects
   unit_names <- names(fixest::fixef(mod_pois)[[unit_col]])
   if (is.numeric(df[[unit_col]])) {
@@ -600,31 +673,24 @@ enforce_PTA_poisson <- function(df, unit, group, time, outcome,
   # Initialize counterfactual as observed
   df[, counterfactual := get(outcome_col)]
 
-  # Predict counterfactual counts for treated observations
-  # E[count] = exp(alpha_i + gamma_t + [trend] + X*beta + log(pop))
-  #          = pop * exp(alpha_i + gamma_t + [trend] + X*beta)
+  # Compute deterministic mu_log_hat for treated observations
+  # mu_log_hat = alpha_i + gamma_t + [trend] + X*beta  (log scale, without pop offset)
   if (trend_type == "common") {
-    # Standard approach without cohort-specific trends
     if (!is.null(controls) && length(controls) > 0) {
       control_coefs <- stats::coef(mod_pois)[controls]
       control_coefs[is.na(control_coefs)] <- 0
 
-      # Calculate control effect for treated obs
       df[treated == TRUE, control_effect :=
            Reduce(`+`, Map(function(x, y) get(x) * y, controls, control_coefs))]
 
-      # Predicted rate on log scale (without pop offset)
-      df[treated == TRUE, .log_rate := unit_effect + time_effect + control_effect]
+      df[treated == TRUE, .mu_log_hat := unit_effect + time_effect + control_effect]
       df[, control_effect := NULL]
     } else {
-      df[treated == TRUE, .log_rate := unit_effect + time_effect]
+      df[treated == TRUE, .mu_log_hat := unit_effect + time_effect]
     }
   } else if (trend_type == "cohort_trend") {
-    # Extract all coefficients from model
     all_coefs <- stats::coef(mod_pois)
 
-    # Calculate trend effect for each treated observation (on log scale)
-    # Use the pre-created trend variables (.trend_c{cohort}_d{deg})
     df[treated == TRUE, .trend_effect := {
       effect <- numeric(.N)
       for (var_name in cohort_trend_vars) {
@@ -635,7 +701,6 @@ enforce_PTA_poisson <- function(df, unit, group, time, outcome,
       effect
     }]
 
-    # Add control effects if present
     if (!is.null(controls) && length(controls) > 0) {
       control_coefs <- all_coefs[controls]
       control_coefs[is.na(control_coefs)] <- 0
@@ -643,33 +708,50 @@ enforce_PTA_poisson <- function(df, unit, group, time, outcome,
       df[treated == TRUE, .control_effect :=
            Reduce(`+`, Map(function(x, y) get(x) * y, controls, control_coefs))]
 
-      df[treated == TRUE, .log_rate := unit_effect + time_effect + .trend_effect + .control_effect]
+      df[treated == TRUE, .mu_log_hat := unit_effect + time_effect + .trend_effect + .control_effect]
       df[, .control_effect := NULL]
     } else {
-      df[treated == TRUE, .log_rate := unit_effect + time_effect + .trend_effect]
+      df[treated == TRUE, .mu_log_hat := unit_effect + time_effect + .trend_effect]
     }
   }
 
-  # Generate counterfactual counts using Poisson distribution
-  # This preserves the discrete, non-negative nature of counts
-  df[treated == TRUE, .lambda := exp(.log_rate) * get(pop_var)]
+  # Draw log-scale noise and apply
+  treated_rows <- df[treated == TRUE]
+  if (nrow(treated_rows) > 0) {
+    eps_dt <- draw_noise(noise_calib,
+                          units = treated_rows[[unit_col]],
+                          times = treated_rows[[time_col]])
+    eps_dt_named <- data.table::copy(eps_dt)
+    data.table::setnames(eps_dt_named, c("unit", "time"), c(unit_col, time_col))
+    df[eps_dt_named, on = c(unit_col, time_col), .noise_eps := i.eps]
+    df[is.na(.noise_eps), .noise_eps := 0]
 
-  # Handle case where lambda is extremely small or NA
-  df[treated == TRUE & (is.na(.lambda) | .lambda < 0), .lambda := 0]
+    # Apply noise on log scale, then transform to counts
+    df[treated == TRUE, .log_rate_cf := .mu_log_hat + .noise_eps]
+    df[treated == TRUE, .lambda := exp(.log_rate_cf) * get(pop_var)]
 
-  # Draw from Poisson
-  df[treated == TRUE, .counterfactual_count := stats::rpois(.N, .lambda)]
+    # Handle edge cases
+    df[treated == TRUE & (is.na(.lambda) | .lambda < 0), .lambda := 0]
 
-  # Convert back to rate scale if needed
-  if (outcome_type == "rate") {
-    df[treated == TRUE, counterfactual := .counterfactual_count / get(pop_var) * RATE_SCALE]
-  } else {
-    df[treated == TRUE, counterfactual := .counterfactual_count]
+    # Observation model
+    if (noise_spec$obs_model == "poisson") {
+      df[treated == TRUE, .counterfactual_count := stats::rpois(.N, .lambda)]
+    } else {
+      # deterministic: use expected value
+      df[treated == TRUE, .counterfactual_count := .lambda]
+    }
+
+    # Convert to rate scale if needed
+    if (outcome_type == "rate") {
+      df[treated == TRUE, counterfactual := .counterfactual_count / get(pop_var) * RATE_SCALE]
+    } else {
+      df[treated == TRUE, counterfactual := .counterfactual_count]
+    }
   }
 
   # Clean up temporary columns
   temp_cols <- c(".pois_count", ".log_pop", "treated", "unit_effect", "time_effect",
-                 ".log_rate", ".lambda", ".counterfactual_count",
+                 ".mu_log_hat", ".noise_eps", ".log_rate_cf", ".lambda", ".counterfactual_count",
                  ".time_centered", ".trend_effect", cohort_trend_vars)
   existing_temp <- intersect(temp_cols, names(df))
   if (length(existing_temp) > 0) {

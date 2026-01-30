@@ -146,7 +146,8 @@ run_power_grid <- function(data_clean,
                           min_year = NULL,
                           max_year = NULL,
                           parallel = FALSE,
-                          n_cores = NULL) {
+                          n_cores = NULL,
+                          noise_spec = NULL) {
 
   # Load required packages
   require(data.table)
@@ -267,7 +268,8 @@ run_power_grid <- function(data_clean,
           models_to_run = models_to_run,
           n_sims = n_sims,
           min_year = min_year,
-          max_year = max_year
+          max_year = max_year,
+          noise_spec = noise_spec
         )
 
         # Add specification identifiers to results
