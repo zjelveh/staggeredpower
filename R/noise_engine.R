@@ -618,6 +618,7 @@ draw_noise_cs <- function(calib, treated_units_by_cohort, max_rp_by_cohort, seed
     g <- as.numeric(g_char)
     units <- treated_units_by_cohort[[g_char]]
     max_rp <- max_rp_by_cohort[[g_char]]
+    if (is.null(max_rp) || !is.finite(max_rp) || max_rp < 0) next
     n_units <- length(units)
     n_periods <- max_rp + 1  # rp = 0, 1, ..., max_rp
 
