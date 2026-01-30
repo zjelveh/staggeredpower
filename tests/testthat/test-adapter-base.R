@@ -1,12 +1,19 @@
 # tests/testthat/test-adapter-base.R
 
 # Helper to restore default adapters after clearing
+# Must mirror zzz.R .onLoad registrations to avoid polluting downstream tests
 restore_default_adapters <- function() {
   if (requireNamespace("did", quietly = TRUE)) {
     register_adapter(adapter_cs())
   }
   if (requireNamespace("didimputation", quietly = TRUE)) {
     register_adapter(adapter_imputation())
+  }
+  if (requireNamespace("did2s", quietly = TRUE)) {
+    register_adapter(adapter_did2s())
+  }
+  if (requireNamespace("fixest", quietly = TRUE)) {
+    register_adapter(adapter_etwfe_poisson_glm())
   }
 }
 
