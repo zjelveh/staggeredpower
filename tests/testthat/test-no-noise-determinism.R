@@ -277,7 +277,7 @@ test_that("run_power_analysis metadata reflects iid engine when specified", {
   )
 
   expect_equal(unique(result$final_power$noise_engine), "iid")
-  expect_equal(unique(result$final_power$obs_model), "poisson")
+  expect_equal(unique(result$final_power$obs_model), "gaussian")
 })
 
 

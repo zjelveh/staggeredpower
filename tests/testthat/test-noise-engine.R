@@ -15,7 +15,7 @@ test_that("normalize_noise_spec returns defaults for NULL input", {
   expect_false(ns$common_shock)
   expect_null(ns$rho)
   expect_equal(ns$cs_pool, "global")
-  expect_equal(ns$obs_model, "poisson")  # iid -> poisson
+  expect_equal(ns$obs_model, "gaussian")  # iid -> gaussian
 })
 
 test_that("normalize_noise_spec auto-sets obs_model for engine='none'", {

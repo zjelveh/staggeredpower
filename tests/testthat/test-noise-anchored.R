@@ -11,7 +11,7 @@ library(fixest)
 test_that("normalize_noise_spec accepts ar1_anchored engine", {
   ns <- normalize_noise_spec(list(engine = "ar1_anchored"))
   expect_equal(ns$engine, "ar1_anchored")
-  expect_equal(ns$obs_model, "poisson")  # stochastic -> poisson
+  expect_equal(ns$obs_model, "gaussian")  # stochastic -> gaussian
 })
 
 # =============================================================================

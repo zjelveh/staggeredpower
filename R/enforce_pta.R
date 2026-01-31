@@ -304,16 +304,24 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
   # Draw noise and apply to mu_hat
   treated_rows <- df[treated == TRUE]
   if (nrow(treated_rows) > 0) {
-    eps_dt <- draw_noise(noise_calib,
-                          units = treated_rows[[unit_col]],
-                          times = treated_rows[[time_col]])
-    # Merge eps into df (keyed by unit + time)
-    eps_dt_named <- copy(eps_dt)
-    setnames(eps_dt_named, c("unit", "time"), c(unit_col, time_col))
-    df[eps_dt_named, on = c(unit_col, time_col), .noise_eps := i.eps]
-    df[is.na(.noise_eps), .noise_eps := 0]
-    df[treated == TRUE, counterfactual := .mu_hat + .noise_eps]
-    df[, c(".mu_hat", ".noise_eps") := NULL]
+    if (noise_spec$obs_model == "poisson") {
+      # Count observation model: return deterministic mean rate for Poisson draw in caller
+      df[treated == TRUE, cf_mean_rate := .mu_hat]
+      df[treated == TRUE, counterfactual := .mu_hat]
+      df[, .mu_hat := NULL]
+    } else {
+      # Gaussian path: draw noise and apply additively
+      eps_dt <- draw_noise(noise_calib,
+                            units = treated_rows[[unit_col]],
+                            times = treated_rows[[time_col]])
+      # Merge eps into df (keyed by unit + time)
+      eps_dt_named <- copy(eps_dt)
+      setnames(eps_dt_named, c("unit", "time"), c(unit_col, time_col))
+      df[eps_dt_named, on = c(unit_col, time_col), .noise_eps := i.eps]
+      df[is.na(.noise_eps), .noise_eps := 0]
+      df[treated == TRUE, counterfactual := .mu_hat + .noise_eps]
+      df[, c(".mu_hat", ".noise_eps") := NULL]
+    }
   }
 
   # Cleanup common columns
@@ -337,6 +345,9 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   outcome_col <- outcome
   engine <- noise_spec$engine
 
+  # Count obs model: skip noise calibration entirely (stochasticity via Poisson draw in caller)
+  use_count_obs <- noise_spec$obs_model == "poisson"
+
   # Get key parameters
   groups <- sort(unique(df[[group_col]]))
   max_year <- max(df[[time_col]])
@@ -354,30 +365,32 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   # For ar1/ar1_common, we need to calibrate from control residuals first,
   # then pre-generate shock paths for all treated units
   shock_lookup <- NULL
-  if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
-    # Calibrate noise from control long-diff residuals
-    noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
-                                       controls, noise_spec)
+  if (!use_count_obs) {
+    if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
+      # Calibrate noise from control long-diff residuals
+      noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
+                                         controls, noise_spec)
 
-    # Build treated_units_by_cohort and max_rp_by_cohort
-    treated_units_by_cohort <- list()
-    max_rp_by_cohort <- list()
-    for (g in groups) {
-      g_char <- as.character(g)
-      treated_units_by_cohort[[g_char]] <- unique(df[get(group_col) == g][[unit_col]])
-      max_rp_by_cohort[[g_char]] <- max(df_new[get(group_col) == g]$rel_pass, na.rm = TRUE)
+      # Build treated_units_by_cohort and max_rp_by_cohort
+      treated_units_by_cohort <- list()
+      max_rp_by_cohort <- list()
+      for (g in groups) {
+        g_char <- as.character(g)
+        treated_units_by_cohort[[g_char]] <- unique(df[get(group_col) == g][[unit_col]])
+        max_rp_by_cohort[[g_char]] <- max(df_new[get(group_col) == g]$rel_pass, na.rm = TRUE)
+      }
+
+      # Pre-generate all shock paths
+      shock_dt <- draw_noise_cs(noise_calib, treated_units_by_cohort, max_rp_by_cohort)
+      # Create lookup keyed by (unit, cohort, rp)
+      data.table::setkeyv(shock_dt, c("unit", "cohort", "rp"))
+      shock_lookup <- shock_dt
+
+    } else if (engine == "iid") {
+      # For iid, we still need per-cell resid_sd — calibrate to get those
+      noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
+                                         controls, noise_spec)
     }
-
-    # Pre-generate all shock paths
-    shock_dt <- draw_noise_cs(noise_calib, treated_units_by_cohort, max_rp_by_cohort)
-    # Create lookup keyed by (unit, cohort, rp)
-    data.table::setkeyv(shock_dt, c("unit", "cohort", "rp"))
-    shock_lookup <- shock_dt
-
-  } else if (engine == "iid") {
-    # For iid, we still need per-cell resid_sd — calibrate to get those
-    noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
-                                       controls, noise_spec)
   }
 
   # --- Main (g, rp) loop ---
@@ -441,13 +454,18 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
         # Deterministic mu_hat
         mu_hat <- treated_pre[[outcome_col]] + predicted_changes
 
-        # Apply noise based on engine
-        if (engine == "none") {
+        # Apply noise based on engine and obs_model
+        if (use_count_obs) {
+          # Count observation model: store deterministic mean rate
+          counterfactuals <- mu_hat
+          df_new[get(group_col) == g & get(time_col) == curr_time,
+                 cf_mean_rate := counterfactuals]
+        } else if (engine == "none") {
           counterfactuals <- mu_hat
         } else if (engine == "iid") {
           counterfactuals <- mu_hat + stats::rnorm(length(mu_hat), mean = 0, sd = resid_sd)
         } else {
-          # ar1 or ar1_common: look up pre-computed cumulated shocks
+          # ar1 or ar1_common/ar1_anchored: look up pre-computed cumulated shocks
           treated_units <- treated_pre[[unit_col]]
           eps_vals <- numeric(length(treated_units))
           for (idx in seq_along(treated_units)) {
