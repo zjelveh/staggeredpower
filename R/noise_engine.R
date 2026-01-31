@@ -5,7 +5,9 @@
 #   engine = "none"        — deterministic (eps = 0)
 #   engine = "iid"         — reproduce legacy per-PTA behavior
 #   engine = "ar1"         — AR(1) idiosyncratic process per unit
-#   engine = "ar1_common"  — AR(1) idiosyncratic + common calendar-year shocks
+#   engine = "ar1_common"    — AR(1) idiosyncratic + common calendar-year shocks
+#   engine = "ar1_anchored"  — AR(1) idiosyncratic + ATT-weighted anchored common
+#                               (additive: centered common shocks; log: no common + Jensen correction)
 #
 # Each PTA family has its own calibration function that extracts residuals
 # on the appropriate scale (additive for imputation/CS, log for Poisson).
@@ -38,7 +40,7 @@ normalize_noise_spec <- function(noise_spec = NULL) {
   }
 
   # Validate
-  valid_engines <- c("none", "iid", "ar1", "ar1_common")
+  valid_engines <- c("none", "iid", "ar1", "ar1_common", "ar1_anchored")
   if (!noise_spec$engine %in% valid_engines) {
     stop(sprintf("noise_spec$engine must be one of: %s. Got: '%s'",
                  paste(valid_engines, collapse = ", "), noise_spec$engine))
@@ -90,7 +92,7 @@ calibrate_noise_imputation <- function(mod_fe, df_untreated, unit_col, time_col,
     sigma  = sigma(mod_fe)
   )
 
-  if (engine %in% c("ar1", "ar1_common")) {
+  if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
     # Compute residuals on untreated
     df_untreated[, .noise_e_hat := resid(mod_fe)]
 
@@ -127,6 +129,19 @@ calibrate_noise_imputation <- function(mod_fe, df_untreated, unit_col, time_col,
       data.table::setorder(gamma_dt, time)
       gamma_dt[, dgamma := gamma - shift(gamma, 1L)]
       calib$u_pool <- gamma_dt[!is.na(dgamma), dgamma]
+    }
+
+    # Per-year control residuals for anchored common shocks
+    if (engine == "ar1_anchored") {
+      control_resid_by_year <- list()
+      for (yr in sort(unique(df_untreated[[time_col]]))) {
+        resids_yr <- df_untreated[get(time_col) == yr, .noise_e_hat]
+        resids_yr <- resids_yr[!is.na(resids_yr)]
+        if (length(resids_yr) > 0) {
+          control_resid_by_year[[as.character(yr)]] <- resids_yr
+        }
+      }
+      calib$control_resid_by_year <- control_resid_by_year
     }
 
     # Cleanup temp columns
@@ -203,7 +218,7 @@ calibrate_noise_poisson <- function(mod_pois, df_untreated, working_outcome,
   # For iid: just compute sigma
   calib$sigma_log <- stats::sd(df_untreated$.noise_e_hat, na.rm = TRUE)
 
-  if (engine %in% c("ar1", "ar1_common")) {
+  if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
     # Order and create lag
     data.table::setorderv(df_untreated, c(unit_col, time_col))
     df_untreated[, .noise_e_lag := shift(.noise_e_hat, 1L), by = c(unit_col)]
@@ -247,6 +262,11 @@ calibrate_noise_poisson <- function(mod_pois, df_untreated, working_outcome,
                  ".pois_lambda_hat", ".noise_e_hat")
   existing <- intersect(temp_cols, names(df_untreated))
   if (length(existing) > 0) df_untreated[, (existing) := NULL]
+
+  # Jensen correction flag for any stochastic log-scale engine
+  if (engine %in% c("ar1", "ar1_common", "ar1_anchored", "iid")) {
+    calib$jensen_correction <- TRUE
+  }
 
   calib
 }
@@ -341,8 +361,8 @@ calibrate_noise_cs <- function(df, unit_col, group_col, time_col, outcome_col,
       }
       resid_sd_by_cell[[paste(g, rp, sep = "_")]] <- cell_resid_sd
 
-      # For ar1/ar1_common: compute one-step innovations from long-diff residuals
-      if (engine %in% c("ar1", "ar1_common")) {
+      # For ar1/ar1_common/ar1_anchored: compute one-step innovations from long-diff residuals
+      if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
         # Cumulative long-diff residuals for this cell
         resid_ld_curr <- data.table::data.table(
           unit = control_changes[[unit_col]],
@@ -392,7 +412,7 @@ calibrate_noise_cs <- function(df, unit_col, group_col, time_col, outcome_col,
         )
 
         # Common shock: cross-sectional mean of one-step innovations
-        if (engine == "ar1_common" || isTRUE(noise_spec$common_shock)) {
+        if (engine %in% c("ar1_common", "ar1_anchored") || isTRUE(noise_spec$common_shock)) {
           all_common[[length(all_common) + 1]] <- data.table::data.table(
             cohort = g,
             calendar_year = curr_time,
@@ -406,7 +426,7 @@ calibrate_noise_cs <- function(df, unit_col, group_col, time_col, outcome_col,
   calib$resid_sd_by_cell <- resid_sd_by_cell
 
   # Finalize AR(1) calibration
-  if (engine %in% c("ar1", "ar1_common") && length(all_onestep) > 0) {
+  if (engine %in% c("ar1", "ar1_common", "ar1_anchored") && length(all_onestep) > 0) {
     onestep_dt <- data.table::rbindlist(all_onestep)
 
     if (noise_spec$cs_pool == "global") {
@@ -456,7 +476,7 @@ calibrate_noise_cs <- function(df, unit_col, group_col, time_col, outcome_col,
     }
 
     # Common shock pool
-    if ((engine == "ar1_common" || isTRUE(noise_spec$common_shock)) && length(all_common) > 0) {
+    if ((engine %in% c("ar1_common", "ar1_anchored") || isTRUE(noise_spec$common_shock)) && length(all_common) > 0) {
       common_dt <- data.table::rbindlist(all_common)
       if (noise_spec$cs_pool == "global") {
         calib$u_pool <- common_dt$u_k[!is.na(common_dt$u_k)]
@@ -497,6 +517,78 @@ draw_noise <- function(calib, units, times, seed = NULL) {
     sigma <- if (calib$scale == "additive") calib$sigma else calib$sigma_log
     eps <- stats::rnorm(n, mean = 0, sd = sigma)
     return(data.table::data.table(unit = units, time = times, eps = eps))
+  }
+
+  # AR(1) + ATT-weighted anchored common shocks (additive) / no common (log)
+  if (engine == "ar1_anchored") {
+    dt <- data.table::data.table(unit = units, time = times)
+    data.table::setorderv(dt, c("unit", "time"))
+
+    unique_units <- unique(dt$unit)
+    unique_times <- sort(unique(dt$time))
+    rho <- calib$rho
+
+    # --- Common component (additive scale only) ---
+    u_t <- rep(0, length(unique_times))
+    names(u_t) <- as.character(unique_times)
+
+    if (calib$scale == "additive" && !is.null(calib[["control_resid_by_year"]])) {
+      # Draw one control residual per calendar year
+      for (k in seq_along(unique_times)) {
+        yr <- as.character(unique_times[k])
+        pool <- calib[["control_resid_by_year"]][[yr]]
+        if (!is.null(pool) && length(pool) > 0) {
+          u_t[k] <- sample(pool, 1)
+        }
+      }
+
+      # ATT-weighted centering: w_t = count(treated at t) / total
+      time_counts <- table(factor(times, levels = unique_times))
+      w_t <- as.numeric(time_counts) / sum(time_counts)
+      weighted_mean <- sum(w_t * u_t)
+      u_t <- u_t - weighted_mean
+    }
+    # Log scale: u_t stays zero (no common component for Poisson)
+
+    # --- AR(1) idiosyncratic per unit ---
+    eps_list <- list()
+    for (uid in unique_units) {
+      unit_times <- sort(dt[unit == uid, time])
+      n_t <- length(unit_times)
+
+      if (!is.null(calib[["eta_pool"]]) && length(calib[["eta_pool"]]) > 0) {
+        eta <- sample(calib[["eta_pool"]], n_t, replace = TRUE)
+      } else {
+        sigma_eta <- if (!is.null(calib[["sigma_eta"]])) calib[["sigma_eta"]] else {
+          if (calib[["scale"]] == "additive") calib[["sigma"]] else calib[["sigma_log"]]
+        }
+        eta <- stats::rnorm(n_t, 0, sigma_eta)
+      }
+
+      v <- numeric(n_t)
+      v[1] <- eta[1]
+      if (n_t > 1) {
+        for (j in 2:n_t) {
+          v[j] <- rho * v[j - 1] + eta[j]
+        }
+      }
+
+      eps <- v + u_t[as.character(unit_times)]
+
+      eps_list[[length(eps_list) + 1]] <- data.table::data.table(
+        unit = rep(uid, n_t), time = unit_times, eps = eps
+      )
+    }
+
+    result_dt <- data.table::rbindlist(eps_list)
+
+    # Jensen correction for log scale
+    if (calib$scale == "log" && isTRUE(calib[["jensen_correction"]])) {
+      correction <- log(mean(exp(result_dt$eps)))
+      result_dt[, eps := eps - correction]
+    }
+
+    return(result_dt)
   }
 
   # AR(1) or AR(1) + common shocks
@@ -555,7 +647,15 @@ draw_noise <- function(calib, units, times, seed = NULL) {
     )
   }
 
-  data.table::rbindlist(eps_list)
+  result_dt <- data.table::rbindlist(eps_list)
+
+  # Jensen correction for log scale (ar1, ar1_common)
+  if (calib$scale == "log" && isTRUE(calib[["jensen_correction"]])) {
+    correction <- log(mean(exp(result_dt$eps)))
+    result_dt[, eps := eps - correction]
+  }
+
+  result_dt
 }
 
 
@@ -639,7 +739,7 @@ draw_noise_cs <- function(calib, treated_units_by_cohort, max_rp_by_cohort, seed
 
     # Get common shock pool
     u_pool <- NULL
-    if (engine == "ar1_common" || isTRUE(calib[["common_shock"]])) {
+    if (engine %in% c("ar1_common", "ar1_anchored") || isTRUE(calib[["common_shock"]])) {
       if (!is.null(calib[["u_pool"]])) {
         u_pool <- calib[["u_pool"]]
       } else if (!is.null(calib[["u_pool_by_cohort"]])) {

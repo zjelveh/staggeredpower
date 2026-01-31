@@ -216,7 +216,7 @@ compute_cv_comparison <- function(data, outcome_var, time_var, group_var, id_var
   }
 
   # Compute means by year and group
-  trends <- pre_data[, .(mean_y = mean(get(outcome_var), na.rm = TRUE)),
+  trends <- pre_data[, list(mean_y = mean(get(outcome_var), na.rm = TRUE)),
                       by = c(time_var, ".group")]
 
   trends_wide <- data.table::dcast(

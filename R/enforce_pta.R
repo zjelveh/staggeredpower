@@ -354,7 +354,7 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   # For ar1/ar1_common, we need to calibrate from control residuals first,
   # then pre-generate shock paths for all treated units
   shock_lookup <- NULL
-  if (engine %in% c("ar1", "ar1_common")) {
+  if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
     # Calibrate noise from control long-diff residuals
     noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
                                        controls, noise_spec)
@@ -452,7 +452,7 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
           eps_vals <- numeric(length(treated_units))
           for (idx in seq_along(treated_units)) {
             uid <- treated_units[idx]
-            match_row <- shock_lookup[.(uid, g, rp)]
+            match_row <- shock_lookup[list(uid, g, rp)]
             if (nrow(match_row) > 0 && !is.na(match_row$eps_ld[1])) {
               eps_vals[idx] <- match_row$eps_ld[1]
             }
