@@ -225,3 +225,150 @@ test_that("obs_model=gaussian produces same results as legacy behavior", {
   expect_false("cf_mean_rate" %in% names(result_gaussian))
   expect_false("cf_mean_rate" %in% names(result_default))
 })
+
+
+# =============================================================================
+# BINOMIAL OBSERVATION MODEL TESTS
+# =============================================================================
+
+# Helper: create panel with share (proportion) outcome and total count column
+create_binomial_test_data <- function(seed = 42) {
+  set.seed(seed)
+  n_units <- 30
+  n_years <- 15
+  base_year <- 2000
+
+  dt <- CJ(unit = 1:n_units, year = base_year:(base_year + n_years - 1))
+
+  # Population per unit (stable across time)
+  pop_lookup <- data.table(unit = 1:n_units, pop = sample(50000:500000, n_units))
+  dt[pop_lookup, on = "unit", pop := i.pop]
+
+  # Assign treatment cohorts: first 10 units treated at year 2007, next 10 at 2010, last 10 never
+  dt[, year_passed := fifelse(unit <= 10, 2007L,
+                       fifelse(unit <= 20, 2010L, NA_integer_))]
+  dt[, treat_ind := fifelse(!is.na(year_passed) & year >= year_passed, 1L, 0L)]
+  dt[, rel_pass := fifelse(!is.na(year_passed), year - year_passed, NA_integer_)]
+
+  # Generate aggshare-like outcome: agg / (agg + sim)
+  dt[, n_total := sample(50:500, .N, replace = TRUE)]
+  dt[, true_share := runif(.N, 0.05, 0.30)]
+  dt[, agg_count := rbinom(.N, size = n_total, prob = true_share)]
+  dt[, y_share := agg_count / n_total]
+
+  dt
+}
+
+
+# =============================================================================
+# Test B1: normalize_noise_spec accepts "binomial" obs_model
+# =============================================================================
+test_that("normalize_noise_spec accepts binomial obs_model", {
+  ns <- normalize_noise_spec(list(engine = "ar1_anchored", obs_model = "binomial"))
+  expect_equal(ns$obs_model, "binomial")
+  expect_equal(ns$engine, "ar1_anchored")
+})
+
+
+# =============================================================================
+# Test B2: enforce_PTA_imputation with obs_model="binomial" returns cf_mean_rate
+# =============================================================================
+test_that("enforce_PTA_imputation with obs_model=binomial returns cf_mean_rate column", {
+  dt <- create_binomial_test_data()
+  noise_spec <- list(engine = "ar1_anchored", obs_model = "binomial")
+
+  result <- enforce_PTA(
+    dt, unit = "unit", group = "year_passed", time = "year",
+    outcome = "y_share", method = "imputation", noise_spec = noise_spec
+  )
+
+  # cf_mean_rate should exist for treated rows
+  expect_true("cf_mean_rate" %in% names(result))
+  treated <- result[!is.na(year_passed) & year >= year_passed]
+  expect_true(all(!is.na(treated$cf_mean_rate)))
+
+  # counterfactual should equal cf_mean_rate (deterministic, no noise)
+  expect_equal(treated$counterfactual, treated$cf_mean_rate)
+})
+
+
+# =============================================================================
+# Test B3: enforce_PTA_CS with obs_model="binomial" returns cf_mean_rate
+# =============================================================================
+test_that("enforce_PTA_CS with obs_model=binomial returns cf_mean_rate column", {
+  dt <- create_binomial_test_data()
+  noise_spec <- list(engine = "ar1_anchored", obs_model = "binomial")
+
+  result <- enforce_PTA(
+    dt, unit = "unit", group = "year_passed", time = "year",
+    outcome = "y_share", method = "CS", noise_spec = noise_spec
+  )
+
+  # cf_mean_rate should exist for treated rows
+  expect_true("cf_mean_rate" %in% names(result))
+  treated <- result[!is.na(year_passed) & year >= year_passed]
+  expect_true(all(!is.na(treated$cf_mean_rate)))
+
+  # counterfactual should equal cf_mean_rate
+  expect_equal(treated$counterfactual, treated$cf_mean_rate)
+})
+
+
+# =============================================================================
+# Test B4: Binomial draw is mean-preserving (10k draws ≈ p_eff)
+# =============================================================================
+test_that("Binomial draw mean converges to p_eff", {
+  p_eff <- 0.15
+  n_total <- 200L
+
+  set.seed(123)
+  draws <- stats::rbinom(10000, size = n_total, prob = p_eff) / n_total
+  mean_share <- mean(draws)
+
+  # Within 5% relative tolerance
+  expect_equal(mean_share, p_eff, tolerance = 0.05)
+})
+
+
+# =============================================================================
+# Test B5: Binomial draw stays in [0,1] across 50 draws
+# =============================================================================
+test_that("Binomial draw stays in [0,1] across 50 draws", {
+  dt <- create_binomial_test_data()
+  noise_spec <- list(engine = "ar1_anchored", obs_model = "binomial")
+
+  pta_result <- enforce_PTA(
+    dt, unit = "unit", group = "year_passed", time = "year",
+    outcome = "y_share", method = "imputation", noise_spec = noise_spec
+  )
+
+  treated <- pta_result[!is.na(year_passed) & year >= year_passed]
+  set.seed(99)
+  for (i in 1:50) {
+    p_eff <- pmin(pmax(treated$cf_mean_rate, 0), 1)
+    n_total <- treated$n_total
+    y_cf <- ifelse(n_total > 0,
+      stats::rbinom(nrow(treated), size = n_total, prob = p_eff) / n_total,
+      0)
+    expect_true(all(y_cf >= 0 & y_cf <= 1),
+                info = sprintf("Draw %d has y_cf outside [0,1]", i))
+  }
+})
+
+
+# =============================================================================
+# Test B6: Binomial caps prob at 1 when percent_effect pushes p > 1
+# =============================================================================
+test_that("Binomial caps probability at 1 when effect pushes p > 1", {
+  p_base <- 0.80
+  percent_effect <- 1.50  # 80% * 1.5 = 120% -> capped at 100%
+  n_total <- 100L
+
+  p_eff <- pmin(pmax(p_base, 0) * percent_effect, 1)
+  expect_equal(p_eff, 1.0)
+
+  # All draws should equal n_total (i.e., share = 1)
+  set.seed(42)
+  draws <- stats::rbinom(100, size = n_total, prob = p_eff)
+  expect_true(all(draws == n_total))
+})

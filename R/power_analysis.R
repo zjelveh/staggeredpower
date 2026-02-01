@@ -49,6 +49,7 @@ run_power_analysis <- function(data_clean,
                                pretrend_test = FALSE,
                                outcome_type = NULL,
                                pop_var = NULL,
+                               total_count_var = NULL,
                                family = NULL,
                                trend_type = "common",
                                trend_order = 1L,
@@ -61,6 +62,11 @@ run_power_analysis <- function(data_clean,
   # Count obs model requires pop_var for rate→count conversion
   if (noise_spec$obs_model == "poisson" && is.null(pop_var)) {
     message("obs_model='poisson' requires pop_var; falling back to obs_model='gaussian'")
+    noise_spec$obs_model <- "gaussian"
+  }
+
+  if (noise_spec$obs_model == "binomial" && is.null(total_count_var)) {
+    message("obs_model='binomial' requires total_count_var; falling back to obs_model='gaussian'")
     noise_spec$obs_model <- "gaussian"
   }
 
@@ -129,6 +135,11 @@ run_power_analysis <- function(data_clean,
                    pta_type %in% c("cs", "imputation") &&
                    !is.null(pop_var)
 
+  # Binomial obs model flag: Binomial draw for share/proportion outcomes
+  use_binomial_obs <- noise_spec$obs_model == "binomial" &&
+                      pta_type %in% c("cs", "imputation") &&
+                      !is.null(total_count_var)
+
   # Initial PTA enforcement (used for bound-error diagnostics only)
   pta_enforced_orig = enforce_PTA(
     copy(data_clean_full),
@@ -152,6 +163,10 @@ run_power_analysis <- function(data_clean,
 
   if (use_count_obs) {
     # Count obs model: negative counterfactuals structurally impossible
+    pta_enforced_orig[, bound_error := 0L]
+    pta_enforced_orig[, na_error := 0L]
+  } else if (use_binomial_obs) {
+    # Binomial obs model: shares bounded [0,1] by construction
     pta_enforced_orig[, bound_error := 0L]
     pta_enforced_orig[, na_error := 0L]
   } else if (is.null(transform_outcome)) {
@@ -216,6 +231,18 @@ run_power_analysis <- function(data_clean,
         counterfactual_data[get(treat_ind_var) == 1,
           y_cf := stats::rpois(.N, .lambda) / get(pop_var) * RATE_SCALE]
         counterfactual_data[, .lambda := NULL]
+
+      } else if (use_binomial_obs && "cf_mean_rate" %in% names(counterfactual_data)) {
+        # --- Binomial observation model: draw count from Binomial(N_total, p_eff) ---
+        counterfactual_data[get(treat_ind_var) == 1,
+          .p_eff := pmin(pmax(cf_mean_rate, 0) * percent_effect, 1)]
+        counterfactual_data[get(treat_ind_var) == 1,
+          .n_total := as.integer(round(get(total_count_var)))]
+        counterfactual_data[get(treat_ind_var) == 1,
+          y_cf := ifelse(.n_total > 0L,
+            stats::rbinom(.N, size = pmax(.n_total, 1L), prob = .p_eff) / .n_total,
+            0)]
+        counterfactual_data[, c(".p_eff", ".n_total") := NULL]
 
       } else if(!is.null(transform_outcome)){
         if(transform_outcome=='log'){

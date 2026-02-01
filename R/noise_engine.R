@@ -53,8 +53,8 @@ normalize_noise_spec <- function(noise_spec = NULL) {
     stop(sprintf("noise_spec$cs_pool must be 'global' or 'cohort'. Got: '%s'",
                  noise_spec$cs_pool))
   }
-  if (!noise_spec$obs_model %in% c("deterministic", "gaussian", "poisson")) {
-    stop(sprintf("noise_spec$obs_model must be 'deterministic', 'gaussian', or 'poisson'. Got: '%s'",
+  if (!noise_spec$obs_model %in% c("deterministic", "gaussian", "poisson", "binomial")) {
+    stop(sprintf("noise_spec$obs_model must be 'deterministic', 'gaussian', 'poisson', or 'binomial'. Got: '%s'",
                  noise_spec$obs_model))
   }
   if (!is.null(noise_spec$rho)) {

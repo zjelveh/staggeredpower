@@ -304,8 +304,8 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
   # Draw noise and apply to mu_hat
   treated_rows <- df[treated == TRUE]
   if (nrow(treated_rows) > 0) {
-    if (noise_spec$obs_model == "poisson") {
-      # Count observation model: return deterministic mean rate for Poisson draw in caller
+    if (noise_spec$obs_model %in% c("poisson", "binomial")) {
+      # Count/binomial observation model: return deterministic mean for draw in caller
       df[treated == TRUE, cf_mean_rate := .mu_hat]
       df[treated == TRUE, counterfactual := .mu_hat]
       df[, .mu_hat := NULL]
@@ -345,8 +345,8 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   outcome_col <- outcome
   engine <- noise_spec$engine
 
-  # Count obs model: skip noise calibration entirely (stochasticity via Poisson draw in caller)
-  use_count_obs <- noise_spec$obs_model == "poisson"
+  # Count/binomial obs model: skip noise calibration entirely (stochasticity via draw in caller)
+  use_count_obs <- noise_spec$obs_model %in% c("poisson", "binomial")
 
   # Get key parameters
   groups <- sort(unique(df[[group_col]]))
