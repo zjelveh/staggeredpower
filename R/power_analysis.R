@@ -54,7 +54,10 @@ run_power_analysis <- function(data_clean,
                                trend_type = "common",
                                trend_order = 1L,
                                noise_spec = list(engine = "none"),
-                               design_resample = "none") {
+                               design_resample = "none",
+                               allow_unbalanced_panel = FALSE,
+                               est_method = "dr",
+                               base_period = "varying") {
 
   # Normalize and validate noise spec
   noise_spec <- normalize_noise_spec(noise_spec)
@@ -281,7 +284,10 @@ run_power_analysis <- function(data_clean,
           pretrend_test = pretrend_test,
           outcome_type = outcome_type,
           pop_var = pop_var,
-          family = family
+          family = family,
+          allow_unbalanced_panel = allow_unbalanced_panel,
+          est_method = est_method,
+          base_period = base_period
         )
 
         for(model in names(results)){

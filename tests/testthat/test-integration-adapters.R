@@ -23,6 +23,8 @@ test_that("adapters work with real NIBRS strangulation data", {
   }
 
   # Test CS adapter with real data
+  # NIBRS is unbalanced panel; must pass allow_unbalanced_panel=TRUE and
+  # est_method="reg" (with controls) to match main estimation settings
   results_cs <- estimate_models(
     data = data,
     id_var = "state_fips",
@@ -31,7 +33,10 @@ test_that("adapters work with real NIBRS strangulation data", {
     group_var = "year_passed",
     controls = c("unemp_rate"),
     models_to_run = "cs",
-    n_cores = 2
+    n_cores = 2,
+    allow_unbalanced_panel = TRUE,
+    est_method = "reg",
+    base_period = "universal"
   )
 
   expect_s3_class(results_cs$cs, "standard_estimate")
