@@ -1,0 +1,8 @@
+bibentry(
+  bibtype  = "Manual",
+  title    = "staggeredpower: Power Analysis for Staggered Difference-in-Differences Designs",
+  author   = person("Zubin", "Jelveh"),
+  year     = "2026",
+  note     = "R package version 0.1.0",
+  url      = "https://github.com/zjelveh/staggeredpower"
+)
