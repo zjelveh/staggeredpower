@@ -70,7 +70,7 @@ store_results <- function(results,
       ng = length(unique(data$year_passed)), 
       n = nrow(data),
       controls = paste0(use_controls, collapse='*'),
-      ybar = mean(data[law_pass==0][[outcome]], na.rm=T),
+      ybar = mean(data[law_pass==0][[outcome]], na.rm=TRUE),
       drop_add_states = drop_add_states,
       result_type = result_type,
       transform_outcome = transform_outcome
