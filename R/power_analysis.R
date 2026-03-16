@@ -89,33 +89,22 @@ run_power_analysis <- function(data_clean,
             "design_resample='cluster_bootstrap'.")
   }
 
-  # Check if parallel backend is registered
-  # run_power_analysis uses %dopar% for Monte Carlo simulations
-  if (!requireNamespace("foreach", quietly = TRUE)) {
-    stop("Package 'foreach' is required but not installed. Please install it with: install.packages('foreach')")
-  }
+  # Determine parallel vs sequential execution
+  use_parallel <- requireNamespace("foreach", quietly = TRUE)
 
-  n_workers <- foreach::getDoParWorkers()
-
-  if (n_workers == 1 && n_sims > 1L) {
-    warning(
-      "\n================================================================================\n",
-      "No parallel backend detected. Monte Carlo simulations will run SEQUENTIALLY.\n",
-      "This will be very slow for n_sims > 10.\n\n",
-      "For faster execution, register a parallel backend BEFORE calling this function:\n\n",
-      "  library(doParallel)\n",
-      "  cl <- makeCluster(detectCores() - 1)\n",
-      "  registerDoParallel(cl)\n",
-      "  # ... run your analysis ...\n",
-      "  stopCluster(cl)\n\n",
-      "See ?registerDoParallel for details.\n",
-      "================================================================================\n",
-      call. = FALSE,
-      immediate. = TRUE
-    )
-  } else if (n_workers > 1) {
-    cat(sprintf("Using %d cores for Monte Carlo simulations (%d total sims)\n",
-                n_workers, n_sims))
+  if (use_parallel) {
+    n_workers <- foreach::getDoParWorkers()
+    if (n_workers > 1) {
+      cat(sprintf("Using %d cores for Monte Carlo simulations (%d total sims)\n",
+                  n_workers, n_sims))
+    } else if (n_sims > 1L) {
+      message("No parallel backend detected. Running sequentially. ",
+              "For faster execution, register a backend:\n",
+              "  library(doParallel); cl <- makeCluster(detectCores() - 1); registerDoParallel(cl)")
+    }
+  } else if (n_sims > 1L) {
+    message("Package 'foreach' not installed. Running sequentially. ",
+            "For parallel execution: install.packages(c('foreach', 'doParallel'))")
   }
 
   # Filter by year range if specified
@@ -194,11 +183,7 @@ run_power_analysis <- function(data_clean,
 
   dat_clean = data_clean_full[!is.na(get(outcome))]
 
-  rez_list =
-    foreach(sim = 1:n_sims,
-            .packages = c('data.table', 'fixest', 'did2s',
-                          'did', 'didimputation', 'etwfe', 'staggeredpower')) %dopar%
-    {
+  sim_fn <- function(sim) {
       # CRITICAL: Disable fixest internal threading to prevent race conditions
       # when running multiple simulations per worker. Without this, fepois()
       # causes heap corruption. See: https://github.com/lrberge/fixest/issues/157
@@ -336,7 +321,19 @@ run_power_analysis <- function(data_clean,
       }
 
       return(returnz)
+  }
+
+  # Dispatch: parallel if foreach available and backend registered, else sequential
+  if (use_parallel && foreach::getDoParWorkers() > 1) {
+    `%dopar%` <- foreach::`%dopar%`
+
+    rez_list <- foreach::foreach(sim = 1:n_sims,
+              .packages = c('data.table', 'staggeredpower')) %dopar% {
+      sim_fn(sim)
     }
+  } else {
+    rez_list <- lapply(1:n_sims, sim_fn)
+  }
 
   final_power_list = list()
   for(i in rez_list) {
