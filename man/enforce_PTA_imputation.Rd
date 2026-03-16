@@ -11,7 +11,10 @@ enforce_PTA_imputation(
   time,
   outcome,
   controls = NULL,
-  seed = NULL
+  seed = NULL,
+  trend_type = "common",
+  trend_order = 1L,
+  noise_spec = NULL
 )
 }
 \arguments{
@@ -51,14 +54,4 @@ The function follows these steps:
 The imputation draws from a normal distribution centered at the predicted mean
 with variance equal to the residual variance from the first-stage regression.
 }
-\examples{
-df <- data.table(
-  unit = rep(1:10, each = 5),
-  time = rep(1:5, 10),
-  group = rep(c(2,3,4), length.out = 10),
-  y = rnorm(50),
-  unemp_rate = runif(50)
-)
-result <- enforce_PTA_imputation(df, "unit", "group", "time", "y", "none")
-
-}
+\keyword{internal}

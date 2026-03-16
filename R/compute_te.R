@@ -8,7 +8,7 @@
 #' @param time_var time_var variable
 #' @param rel_pass_var rel_pass_var variable
 #' @param outcome Outcome variable
-#' @export
+#' @keywords internal
 compute_te <- function(df,
                        pta_type,
                        enforce_type, 

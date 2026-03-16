@@ -20,3 +20,4 @@ create_wide(df, group, unit, time, outcome)
 \description{
 Create Wide Format Dataset
 }
+\keyword{internal}

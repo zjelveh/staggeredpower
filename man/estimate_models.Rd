@@ -16,6 +16,12 @@ estimate_models(
   n_cores = NULL,
   event_study = FALSE,
   weightsname = NULL,
+  outcome_type = NULL,
+  pop_var = NULL,
+  family = NULL,
+  pretrend_test = FALSE,
+  trend_type = c("common", "cohort_trend"),
+  trend_order = 1L,
   ...
 )
 }
@@ -42,6 +48,34 @@ estimate_models(
 
 \item{weightsname}{Character. Column name for observation weights (default NULL for unweighted)}
 
+\item{outcome_type}{Character. Type of outcome variable: "rate" or "count".
+If NULL (default), assumes "rate" for backward compatibility.
+When mixing linear (cs, did2s, imputation) and Poisson (etwfe_poisson) estimators,
+this enables automatic transformation so each estimator uses appropriate data format.}
+
+\item{pop_var}{Character. Population variable name. Required when:
+\itemize{
+\item outcome_type = "count" and running linear estimators (to compute rate)
+\item outcome_type = "rate" and running Poisson estimators (to compute count)
+\item Using etwfe with family = "poisson" (for offset)
+}}
+
+\item{family}{Character. Distribution family for etwfe. NULL (default) for linear/Gaussian,
+"poisson" for Poisson regression with multiplicative parallel trends assumption.
+Only affects etwfe/etwfe_poisson adapters; ignored by other estimators.}
+
+\item{pretrend_test}{Logical. Whether to compute pre-trend tests (default FALSE).
+When TRUE, adapters will compute Wald tests on pre-treatment coefficients.}
+
+\item{trend_type}{Character. Type of time trend assumption: "common" (default) for
+standard parallel trends, or "unit_trend" for unit-specific linear trends.
+\strong{EXPERIMENTAL}: The "unit_trend" option has not been extensively tested and may
+cause numerical issues (near-singular matrices) with many units. Use with caution.
+Only affects imputation and etwfe_poisson adapters.}
+
+\item{trend_order}{Integer. Polynomial order for trends (default 1 = linear).
+Currently only linear trends (order=1) are supported for unit_trend.}
+
 \item{...}{Additional arguments passed to adapters}
 }
 \value{
@@ -54,15 +88,27 @@ and package-specific translation.
 }
 \examples{
 \dontrun{
+# Example 1: Rate data, linear estimators (backward compatible)
 results <- estimate_models(
   data = my_data,
   id_var = "state",
-  outcome_var = "y",
+  outcome_var = "y_rate",
   time_var = "year",
   group_var = "cohort",
   models_to_run = c("cs", "imputation")
 )
-results$cs$att  # Callaway-Sant'Anna ATT
-results$imputation$att  # Imputation ATT
+
+# Example 2: Count data, all estimators including Poisson
+results <- estimate_models(
+  data = my_data,
+  id_var = "state",
+  outcome_var = "y_count",
+  time_var = "year",
+  group_var = "cohort",
+  outcome_type = "count",
+  pop_var = "population",
+  family = "poisson",
+  models_to_run = c("cs", "imputation", "etwfe_poisson")
+)
 }
 }

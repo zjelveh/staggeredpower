@@ -20,7 +20,19 @@ run_power_analysis(
   models_to_run = c("cs", "imputation"),
   n_sims = 100,
   min_year = NULL,
-  max_year = NULL
+  max_year = NULL,
+  pretrend_test = FALSE,
+  outcome_type = NULL,
+  pop_var = NULL,
+  total_count_var = NULL,
+  family = NULL,
+  trend_type = "common",
+  trend_order = 1L,
+  noise_spec = list(engine = "none"),
+  design_resample = "none",
+  allow_unbalanced_panel = FALSE,
+  est_method = "dr",
+  base_period = "varying"
 )
 }
 \arguments{
@@ -47,6 +59,29 @@ with zeros (e.g., crime counts). When transformed, PTA violations are not checke
 \item{min_year}{Numeric. Minimum year to include (optional, default NULL = no minimum)}
 
 \item{max_year}{Numeric. Maximum year to include (optional, default NULL = no maximum)}
+
+\item{pretrend_test}{Logical. Whether to compute pre-trend tests (default FALSE)}
+
+\item{outcome_type}{Character. Type of outcome: "rate" or "count" (default NULL = rate)}
+
+\item{pop_var}{Character. Population variable name for Poisson models (default NULL)}
+
+\item{family}{Character. Distribution family for etwfe: NULL (linear) or "poisson" (default NULL)}
+
+\item{trend_type}{Character. Type of time trend for PTA enforcement: 'common' (default) uses
+standard TWFE with common time effects for all cohorts; 'cohort_trend' estimates cohort-specific
+polynomial time trends that can extrapolate to post-treatment periods. Ignored for pta_type='cs'.}
+
+\item{trend_order}{Integer. For trend_type='cohort_trend', the polynomial order (1=linear,
+2=quadratic, etc.). Default 1. Ignored when trend_type='common'.}
+
+\item{noise_spec}{List. Noise engine configuration. Defaults to \code{list(engine = "none")}
+for deterministic benchmark. Use \code{list(engine = "iid")} for legacy stochastic behavior.
+See \code{\link{normalize_noise_spec}} for full options.}
+
+\item{design_resample}{Character. Design-level resampling: "none" (default) or
+"cluster_bootstrap" (not yet implemented). When engine="none", this is the only way
+to get a rejection probability without outcome noise.}
 }
 \description{
 Run Power Analysis with Parallel Trends

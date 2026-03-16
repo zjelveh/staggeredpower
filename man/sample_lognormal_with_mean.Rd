@@ -16,3 +16,4 @@ sample_lognormal_with_mean(n, desired_mean, cv = 0.5)
 \description{
 Sample from Lognormal Distribution with Target Mean
 }
+\keyword{internal}

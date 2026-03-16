@@ -22,3 +22,4 @@ An estimator_adapter object
 Provides a common interface for translating between staggeredpower's
 model-agnostic parameters and package-specific estimation functions.
 }
+\keyword{internal}

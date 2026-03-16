@@ -10,7 +10,8 @@ adapter_imputation()
 An estimator_adapter for imputation-based estimation
 }
 \description{
-Translates between staggeredpower's common interface and the \code{didimputation} package
+Translates between staggeredpower's common interface and the \code{didimputation} package.
+Assumes additive parallel trends (level scale).
 }
 \examples{
 \dontrun{

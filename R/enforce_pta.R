@@ -134,17 +134,7 @@ enforce_PTA <- function(df, unit, group, time, outcome,
 #' The imputation draws from a normal distribution centered at the predicted mean
 #' with variance equal to the residual variance from the first-stage regression.
 #'
-#' @examples
-#' df <- data.table(
-#'   unit = rep(1:10, each = 5),
-#'   time = rep(1:5, 10),
-#'   group = rep(c(2,3,4), length.out = 10),
-#'   y = rnorm(50),
-#'   unemp_rate = runif(50)
-#' )
-#' result <- enforce_PTA_imputation(df, "unit", "group", "time", "y", "none")
-#'
-#' @export
+#' @keywords internal
 enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NULL, seed = NULL,
                                    trend_type = "common", trend_order = 1L,
                                    noise_spec = NULL) {
@@ -524,20 +514,7 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
 #' 5. Adds Poisson noise (using rpois) to generate stochastic counterfactuals
 #' 6. Converts back to rate scale if needed
 #'
-#' @examples
-#' \dontrun{
-#' df <- data.table(
-#'   unit = rep(1:10, each = 5),
-#'   time = rep(1:5, 10),
-#'   group = rep(c(3,4,5), length.out = 10),
-#'   count = rpois(50, lambda = 5),
-#'   pop = sample(10000:100000, 50, replace = TRUE)
-#' )
-#' result <- enforce_PTA_poisson(df, "unit", "group", "time", "count",
-#'                               pop_var = "pop", outcome_type = "count")
-#' }
-#'
-#' @export
+#' @keywords internal
 enforce_PTA_poisson <- function(df, unit, group, time, outcome,
                                  controls = NULL, seed = NULL,
                                  pop_var = NULL, outcome_type = "rate",

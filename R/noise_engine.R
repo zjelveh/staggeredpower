@@ -17,7 +17,7 @@
 #'
 #' @param noise_spec List with noise configuration. NULL uses defaults.
 #' @return Validated noise_spec list with all fields populated.
-#' @export
+#' @keywords internal
 normalize_noise_spec <- function(noise_spec = NULL) {
   if (is.null(noise_spec)) noise_spec <- list()
 
@@ -82,7 +82,7 @@ normalize_noise_spec <- function(noise_spec = NULL) {
 #' @param time_col Character. Time column name.
 #' @param noise_spec Normalized noise_spec list.
 #' @return Calibration list with: scale, engine, sigma, rho, sigma_eta, eta_pool, u_pool
-#' @export
+#' @keywords internal
 calibrate_noise_imputation <- function(mod_fe, df_untreated, unit_col, time_col, noise_spec) {
   engine <- noise_spec$engine
 
@@ -168,7 +168,7 @@ calibrate_noise_imputation <- function(mod_fe, df_untreated, unit_col, time_col,
 #' @param time_col Character. Time column name.
 #' @param noise_spec Normalized noise_spec list.
 #' @return Calibration list with: scale, engine, sigma_log, rho, sigma_eta, eta_pool, u_pool, obs_model
-#' @export
+#' @keywords internal
 calibrate_noise_poisson <- function(mod_pois, df_untreated, working_outcome,
                                      pop_var, unit_col, time_col, noise_spec) {
   engine <- noise_spec$engine
@@ -286,7 +286,7 @@ calibrate_noise_poisson <- function(mod_pois, df_untreated, working_outcome,
 #' @param noise_spec Normalized noise_spec list.
 #' @return Calibration list with: scale, engine, rho, sigma_eta, eta_pool, u_pool,
 #'   resid_sd_by_cell (for iid backward compat)
-#' @export
+#' @keywords internal
 calibrate_noise_cs <- function(df, unit_col, group_col, time_col, outcome_col,
                                 controls, noise_spec) {
   engine <- noise_spec$engine
@@ -502,7 +502,7 @@ calibrate_noise_cs <- function(df, unit_col, group_col, time_col, outcome_col,
 #' @param times Vector of time values for treated observations
 #' @param seed Optional random seed
 #' @return data.table with columns: unit, time, eps
-#' @export
+#' @keywords internal
 draw_noise <- function(calib, units, times, seed = NULL) {
   if (!is.null(seed)) set.seed(seed)
 
@@ -669,7 +669,7 @@ draw_noise <- function(calib, units, times, seed = NULL) {
 #' @param max_rp_by_cohort Named list: cohort -> maximum relative period
 #' @param seed Optional random seed
 #' @return data.table with columns: unit, cohort, rp, eps_ld (cumulated shock)
-#' @export
+#' @keywords internal
 draw_noise_cs <- function(calib, treated_units_by_cohort, max_rp_by_cohort, seed = NULL) {
   if (!is.null(seed)) set.seed(seed)
 

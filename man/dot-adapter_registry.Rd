@@ -5,7 +5,7 @@
 \alias{.adapter_registry}
 \title{Adapter Registry}
 \format{
-An object of class \code{environment} of length 5.
+An object of class \code{environment} of length 4.
 }
 \usage{
 .adapter_registry

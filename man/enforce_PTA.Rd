@@ -11,8 +11,13 @@ enforce_PTA(
   time,
   outcome,
   controls = NULL,
-  method = c("imputation", "CS"),
-  seed = NULL
+  method = c("imputation", "CS", "poisson"),
+  seed = NULL,
+  pop_var = NULL,
+  outcome_type = "rate",
+  trend_type = c("common", "cohort_trend"),
+  trend_order = 1L,
+  noise_spec = NULL
 )
 }
 \arguments{
@@ -28,33 +33,74 @@ enforce_PTA(
 
 \item{controls}{Character vector. Names of control variables (default: NULL)}
 
-\item{method}{Character. PTA enforcement method: 'imputation' or 'CS' (default: 'imputation')}
+\item{method}{Character. PTA enforcement method: 'imputation', 'CS', or 'poisson' (default: 'imputation')}
 
 \item{seed}{Numeric. Random seed for reproducibility (default: NULL)}
+
+\item{pop_var}{Character. For Poisson method, name of population variable (required for method='poisson')}
+
+\item{outcome_type}{Character. For Poisson method, 'count' or 'rate'. Default 'rate'.}
+
+\item{trend_type}{Character. Type of time trend: 'common' (default) uses standard TWFE with
+common time effects for all cohorts; 'cohort_trend' estimates cohort-specific polynomial
+time trends that can extrapolate to post-treatment periods.}
+
+\item{trend_order}{Integer. For trend_type='cohort_trend', the polynomial order (1=linear,
+2=quadratic, etc.). Default 1. Ignored when trend_type='common'.}
+
+\item{noise_spec}{List. Noise engine configuration. NULL uses defaults (iid Normal, same
+as legacy behavior). See \code{\link{normalize_noise_spec}} for options:
+\describe{
+\item{engine}{"none" (deterministic), "iid" (default, legacy), "ar1", or "ar1_common"}
+\item{innovation}{"normal" (default) or "empirical" (resample from residuals)}
+\item{common_shock}{TRUE/FALSE. Whether to include common calendar-year shocks.}
+\item{rho}{NULL (auto-estimate) or numeric in \link{0, 0.99}. AR(1) persistence parameter.}
+\item{cs_pool}{"global" (default) or "cohort". How to pool CS innovations.}
+\item{obs_model}{"deterministic" or "poisson" (default). For Poisson PTA only.}
+}}
 }
 \value{
-A list containing:
-\describe{
-\item{df_new}{Data.frame with enforced parallel trends}
-\item{stats}{Data.frame with enforcement statistics}
-}
+A data.frame with enforced parallel trends (includes 'counterfactual' column)
 }
 \description{
 This function enforces the parallel trends assumption (PTA) by adjusting post-treatment
 outcomes based on pre-treatment trends. It supports multiple methods for enforcing the PTA
 and different control group definitions.
 }
+\details{
+Three methods are available:
+\describe{
+\item{imputation}{Uses two-way fixed effects on untreated observations to impute
+counterfactuals. Assumes additive parallel trends on level scale.}
+\item{CS}{Uses Callaway-Sant'Anna style approach with not-yet-treated controls.
+Assumes additive parallel trends on level scale.}
+\item{poisson}{Uses Poisson regression with unit and time fixed effects on untreated
+observations. Assumes multiplicative parallel trends on log-rate scale. This is
+appropriate for rare count outcomes (Wooldridge 2023).}
+}
+}
 \examples{
 \dontrun{
-data <- prepare_panel_data(your_data)
+# Linear approach (additive PT)
 pta_results <- enforce_PTA(
   df = data,
   unit = "county_name",
   group = "year_passed",
   time = "year",
-  outcome = "outcome_var",
-  period = "pre_year",
-  cohort = "notyettreated"
+  outcome = "rate_per_100k",
+  method = "imputation"
+)
+
+# Poisson approach (multiplicative PT)
+pta_results <- enforce_PTA(
+  df = data,
+  unit = "county_name",
+  group = "year_passed",
+  time = "year",
+  outcome = "count",
+  method = "poisson",
+  pop_var = "population",
+  outcome_type = "count"
 )
 }
 

@@ -32,3 +32,4 @@ compute_te(
 \description{
 Compute Treatment Effects
 }
+\keyword{internal}

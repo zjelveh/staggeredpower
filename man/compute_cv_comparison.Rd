@@ -33,3 +33,4 @@ This diagnostic helps researchers understand whether additive or multiplicative
 parallel trends is more plausible for their data. It compares early vs late
 adopters (split at median cohort) in the pre-treatment period.
 }
+\keyword{internal}

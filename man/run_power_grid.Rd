@@ -22,7 +22,9 @@ run_power_grid(
   min_year = NULL,
   max_year = NULL,
   parallel = FALSE,
-  n_cores = NULL
+  n_cores = NULL,
+  noise_spec = list(engine = "none"),
+  design_resample = "none"
 )
 }
 \arguments{
@@ -70,6 +72,13 @@ For most use cases, parallelization at the Monte Carlo simulation level (via doP
 is more efficient than grid-level parallelization.}
 
 \item{n_cores}{Number of cores if parallel=TRUE. Default: NULL (uses all available - 1)}
+
+\item{noise_spec}{List. Noise engine configuration. Defaults to \code{list(engine = "none")}
+for deterministic benchmark. Use \code{list(engine = "iid")} for legacy stochastic behavior.
+See \code{\link{normalize_noise_spec}} for full options.}
+
+\item{design_resample}{Character. Design-level resampling: "none" (default) or
+"cluster_bootstrap" (not yet implemented). Passed through to \code{\link{run_power_analysis}}.}
 }
 \value{
 A list with three components:

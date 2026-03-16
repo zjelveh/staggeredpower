@@ -6,7 +6,7 @@
 #' @param unit Unit identifier 
 #' @param time Time variable
 #' @param outcome Outcome variable
-#' @export
+#' @keywords internal
 create_wide <- function(df,
                         group,
                         unit, 
@@ -40,7 +40,7 @@ create_wide <- function(df,
 #' @param n Number of samples
 #' @param desired_mean Target mean
 #' @param cv Coefficient of variation
-#' @export
+#' @keywords internal
 sample_lognormal_with_mean <- function(n, desired_mean, cv = 0.5) {
   # Calculate sigma
   sigma <- sqrt(log(1 + cv^2))

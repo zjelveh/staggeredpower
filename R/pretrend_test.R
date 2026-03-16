@@ -113,7 +113,7 @@ compute_pretrend_wald_test <- function(pre_coefs, pre_vcov) {
 #' @importFrom fixest fepois
 #' @importFrom data.table as.data.table
 #' @importFrom stats as.formula coef vcov
-#' @export
+#' @keywords internal
 run_vanilla_poisson_es <- function(data, outcome_var, time_var, id_var,
                                     group_var, cluster_var, ref_period = -1,
                                     min_event = -10, max_event = 10) {
@@ -179,7 +179,7 @@ run_vanilla_poisson_es <- function(data, outcome_var, time_var, id_var,
 #'
 #' @importFrom data.table as.data.table dcast fifelse
 #' @importFrom stats as.formula median sd
-#' @export
+#' @keywords internal
 compute_cv_comparison <- function(data, outcome_var, time_var, group_var, id_var) {
 
   dt <- data.table::as.data.table(data)

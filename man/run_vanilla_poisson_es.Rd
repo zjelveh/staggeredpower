@@ -48,3 +48,4 @@ pre-treatment coefficients for testing multiplicative parallel trends.
 This is used for ETWFE Poisson models, which don't produce pre-treatment
 coefficients by design.
 }
+\keyword{internal}

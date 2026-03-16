@@ -10,7 +10,7 @@
 #' @param requires Character vector. Package dependencies
 #'
 #' @return An estimator_adapter object
-#' @export
+#' @keywords internal
 estimator_adapter <- function(name, fit_fn, extract_fn, requires = NULL) {
   # Validate inputs
   stopifnot(
@@ -43,7 +43,7 @@ estimator_adapter <- function(name, fit_fn, extract_fn, requires = NULL) {
 #' @param metadata Optional. Additional model-specific info
 #'
 #' @return A standard_estimate object
-#' @export
+#' @keywords internal
 standard_estimate <- function(att, se, model_name,
                               event_study = NULL,
                               raw_result = NULL,

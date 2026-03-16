@@ -32,3 +32,4 @@ A standard_estimate object
 \description{
 All adapters must return results in this format
 }
+\keyword{internal}
