@@ -42,7 +42,7 @@
 #' @export
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' # Example 1: Rate data, linear estimators (backward compatible)
 #' results <- estimate_models(
 #'   data = my_data,

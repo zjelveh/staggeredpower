@@ -13,7 +13,7 @@ An estimator_adapter for Callaway-Sant'Anna estimation
 Translates between staggeredpower's common interface and the \code{did} package
 }
 \examples{
-\dontrun{
+\donttest{
 adapter <- adapter_cs()
 result <- adapter$fit(data = my_data, outcome_var = "y", ...)
 std_result <- adapter$extract(result)

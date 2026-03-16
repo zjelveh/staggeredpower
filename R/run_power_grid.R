@@ -76,7 +76,7 @@
 #' See package README for detailed examples.
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' library(doParallel)
 #'
 #' # Set up parallel backend (REQUIRED for reasonable performance)

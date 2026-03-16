@@ -7,7 +7,7 @@
 #' @export
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' adapter <- adapter_cs()
 #' result <- adapter$fit(data = my_data, outcome_var = "y", ...)
 #' std_result <- adapter$extract(result)

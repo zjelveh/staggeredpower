@@ -80,7 +80,7 @@ appropriate for rare count outcomes (Wooldridge 2023).}
 }
 }
 \examples{
-\dontrun{
+\donttest{
 # Linear approach (additive PT)
 pta_results <- enforce_PTA(
   df = data,

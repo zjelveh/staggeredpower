@@ -14,7 +14,7 @@ Translates between staggeredpower's common interface and the \code{didimputation
 Assumes additive parallel trends (level scale).
 }
 \examples{
-\dontrun{
+\donttest{
 adapter <- adapter_imputation()
 result <- adapter$fit(data = my_data, outcome_var = "y", ...)
 std_result <- adapter$extract(result)

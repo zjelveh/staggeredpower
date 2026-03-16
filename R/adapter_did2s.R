@@ -9,7 +9,7 @@
 #' @export
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' adapter <- adapter_did2s()
 #' result <- adapter$fit(data = my_data, outcome_var = "y", ...)
 #' std_result <- adapter$extract(result)

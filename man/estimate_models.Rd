@@ -87,7 +87,7 @@ Uses the adapter pattern for clean separation between common parameters
 and package-specific translation.
 }
 \examples{
-\dontrun{
+\donttest{
 # Example 1: Rate data, linear estimators (backward compatible)
 results <- estimate_models(
   data = my_data,

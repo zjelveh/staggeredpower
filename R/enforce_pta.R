@@ -46,7 +46,7 @@
 #' }
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' # Linear approach (additive PT)
 #' pta_results <- enforce_PTA(
 #'   df = data,
