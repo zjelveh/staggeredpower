@@ -34,6 +34,11 @@ adapter_did2s <- function() {
                      pretrend_test = FALSE,
                      ...) {
 
+    if (!requireNamespace("did2s", quietly = TRUE)) {
+      stop("Package 'did2s' is required for the DID2S adapter. ",
+           "Install with: install.packages('did2s')", call. = FALSE)
+    }
+
     # Default cluster to id_var
     if (is.null(cluster_var)) {
       cluster_var <- id_var

@@ -32,6 +32,11 @@ adapter_imputation <- function() {
                      trend_order = 1L,
                      ...) {
 
+    if (!requireNamespace("didimputation", quietly = TRUE)) {
+      stop("Package 'didimputation' is required for the imputation adapter. ",
+           "Install with: install.packages('didimputation')", call. = FALSE)
+    }
+
     # Convert to data.table for manipulation
     data <- data.table::as.data.table(data)
 

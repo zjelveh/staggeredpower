@@ -34,6 +34,11 @@ adapter_cs <- function() {
                      family = NULL,  # ignored by CS, but accepted for compatibility
                      ...) {
 
+    if (!requireNamespace("did", quietly = TRUE)) {
+      stop("Package 'did' is required for the CS adapter. ",
+           "Install with: install.packages('did')", call. = FALSE)
+    }
+
     # Convert to data.table for manipulation
     data <- data.table::as.data.table(data)
 
