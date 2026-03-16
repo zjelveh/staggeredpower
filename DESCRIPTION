@@ -12,17 +12,17 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 Imports:
     data.table,
-    fixest,
+    fixest
+Suggests:
     did,
     did2s,
     didimputation,
     foreach,
     doParallel,
-    yaml
-Suggests:
+    yaml,
     testthat (>= 3.0.0),
     knitr,
     rmarkdown,
-    ggplot2,
-    etwfe
+    ggplot2
+VignetteBuilder: knitr
 Config/testthat/edition: 3
