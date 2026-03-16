@@ -16,7 +16,9 @@ store_results(
   use_controls,
   drop_add_states,
   result_type,
-  transform_outcome
+  transform_outcome,
+  treat_col = "law_pass",
+  group_col = "year_passed"
 )
 }
 \arguments{
@@ -43,6 +45,12 @@ store_results(
 \item{result_type}{Result type}
 
 \item{transform_outcome}{Transform outcome variable}
+
+\item{treat_col}{Name of the treatment indicator column in \code{data}.
+Defaults to \code{"law_pass"} for backward compatibility.}
+
+\item{group_col}{Name of the treatment timing (cohort/group) column in
+\code{data}.  Defaults to \code{"year_passed"} for backward compatibility.}
 
 \item{model}{Model type}
 }

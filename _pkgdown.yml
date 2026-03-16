@@ -1,0 +1,47 @@
+url: https://zjelveh.github.io/staggeredpower/
+
+template:
+  bootstrap: 5
+
+reference:
+  - title: "Core Functions"
+    desc: "Main entry points for power analysis"
+    contents:
+      - run_power_analysis
+      - run_power_grid
+      - estimate_models
+
+  - title: "Estimator Adapters"
+    desc: "Pluggable backends for different DiD estimators"
+    contents:
+      - adapter_cs
+      - adapter_did2s
+      - adapter_imputation
+      - adapter_etwfe_poisson_glm
+
+  - title: "Diagnostics"
+    desc: "Pre-trend testing and PTA enforcement"
+    contents:
+      - compute_pretrend_wald_test
+      - enforce_PTA
+
+  - title: "Utilities"
+    desc: "Configuration, storage, and adapter management"
+    contents:
+      - load_config
+      - store_results
+      - register_adapter
+      - get_adapter
+      - list_adapters
+
+  - title: "Data"
+    contents:
+      - nfs_panel
+
+articles:
+  - title: "Getting Started"
+    contents:
+      - getting-started
+  - title: "Advanced"
+    contents:
+      - advanced-usage

@@ -1,0 +1,141 @@
+================================================================================ 
+POWER ANALYSIS V3 SUMMARY REPORT
+Controls + Transformations Analysis
+Generated: 2025-11-09 23:45:44 
+================================================================================ 
+
+DATABASE CONTENTS
+-------------------------------------------------------------------------------- 
+Total simulation runs: 182600
+Outcomes: 7
+Transformations: No, ihs
+Control specifications: 3
+Models tested: cs, imputation
+
+Rows by transformation and controls:
+   outcome_transformed                                             controls
+                <char>                                               <char>
+1:                  No                                          no_controls
+2:                  No                 unemp_rate*index_violent_crimes_rate
+3:                  No unemp_rate*index_violent_crimes_rate*is_disc*is_mand
+4:                 ihs                                          no_controls
+5:                 ihs                 unemp_rate*index_violent_crimes_rate
+6:                 ihs unemp_rate*index_violent_crimes_rate*is_disc*is_mand
+       N
+   <int>
+1: 30800
+2: 30800
+3: 30800
+4: 30800
+5: 30800
+6: 28600
+
+
+POWER BY TRANSFORMATION, CONTROLS, AND MODEL
+-------------------------------------------------------------------------------- 
+    outcome_transformed              control_label      model     power
+                 <char>                     <fctr>     <char>     <num>
+ 1:                  No                No controls         cs 0.4272727
+ 2:                  No                No controls imputation 0.3897403
+ 3:                  No           Economic + Crime         cs 0.7401948
+ 4:                  No           Economic + Crime imputation 0.5283117
+ 5:                  No Econ + Crime + DV policies         cs 0.7359740
+ 6:                  No Econ + Crime + DV policies imputation 0.5686364
+ 7:                 ihs                No controls         cs 0.2781818
+ 8:                 ihs                No controls imputation 0.3006364
+ 9:                 ihs           Economic + Crime         cs 0.3842208
+10:                 ihs           Economic + Crime imputation 0.5314141
+11:                 ihs Econ + Crime + DV policies         cs 0.4862937
+12:                 ihs Econ + Crime + DV policies imputation 0.5970000
+      mean_att   mean_se n_sims
+         <num>     <num>  <int>
+ 1: -1.2220695 22.541725  15400
+ 2:  8.7893203 25.171275  15400
+ 3:  0.8275164 13.048296  15400
+ 4: -0.5218656 29.831154  15400
+ 5: -5.7221671  9.868154  15400
+ 6: 12.5369000 28.987171  15400
+ 7: -3.5563630 20.869581  15400
+ 8:        Inf  5.086618  15400
+ 9:  0.7066661 10.563309  15400
+10:        NaN  2.039486  15400
+11: -6.7623647  5.454449  14300
+12:        Inf  3.120388  14300
+
+
+CONTROL SPECIFICATION COMPARISON
+-------------------------------------------------------------------------------- 
+                 control_label outcome_transformed      model     power
+                        <fctr>              <char>     <char>     <num>
+ 1:                No controls                  No         cs 0.4272727
+ 2:                No controls                  No imputation 0.3897403
+ 3:                No controls                 ihs         cs 0.2781818
+ 4:                No controls                 ihs imputation 0.3006364
+ 5:           Economic + Crime                  No         cs 0.7401948
+ 6:           Economic + Crime                  No imputation 0.5283117
+ 7:           Economic + Crime                 ihs         cs 0.3842208
+ 8:           Economic + Crime                 ihs imputation 0.5314141
+ 9: Econ + Crime + DV policies                  No         cs 0.7359740
+10: Econ + Crime + DV policies                  No imputation 0.5686364
+11: Econ + Crime + DV policies                 ihs         cs 0.4862937
+12: Econ + Crime + DV policies                 ihs imputation 0.5970000
+      mean_att    sd_att   mean_se n_outcomes n_sims
+         <num>     <num>     <num>      <int>  <int>
+ 1: -1.2220695 44.604935 22.541725          7  15400
+ 2:  8.7893203 46.064238 25.171275          7  15400
+ 3: -3.5563630  8.729101 20.869581          7  15400
+ 4:        Inf       NaN  5.086618          7  15400
+ 5:  0.8275164 68.752464 13.048296          7  15400
+ 6: -0.5218656 73.754652 29.831154          7  15400
+ 7:  0.7066661  7.897829 10.563309          7  15400
+ 8:        NaN       NaN  2.039486          7  15400
+ 9: -5.7221671 87.447962  9.868154          7  15400
+10: 12.5369000 86.074553 28.987171          7  15400
+11: -6.7623647 17.136345  5.454449          7  14300
+12:        Inf       NaN  3.120388          7  14300
+
+
+PTA VIOLATIONS BY TRANSFORMATION AND CONTROLS
+-------------------------------------------------------------------------------- 
+   outcome_transformed              control_label mean_units_dropped
+                <char>                     <fctr>              <num>
+1:                  No                No controls          11.759740
+2:                  No           Economic + Crime           9.305195
+3:                  No Econ + Crime + DV policies           9.077922
+4:                 ihs                No controls           0.000000
+5:                 ihs           Economic + Crime           0.000000
+6:                 ihs Econ + Crime + DV policies           0.000000
+   mean_pct_dropped max_units_dropped n_sims
+              <num>             <int>  <int>
+1:         40.86835                31  30800
+2:         30.30388                33  30800
+3:         28.25397                30  30800
+4:          0.00000                 0  30800
+5:          0.00000                 0  30800
+6:          0.00000                 0  28600
+
+
+KEY FINDINGS
+-------------------------------------------------------------------------------- 
+
+Untransformed outcomes:
+
+IHS-transformed outcomes:
+
+
+OUTPUT FILES
+-------------------------------------------------------------------------------- 
+Tables (in tables/):
+  - power_by_transform_controls_outcome_model.csv
+  - power_by_transform_controls_effect.csv
+  - control_specification_comparison.csv
+  - pta_violations_by_transform_controls.csv
+  - final_power_full.csv
+
+Plots (in plots/):
+  - power_curves_by_transform_controls_cs.png
+  - power_curves_by_transform_controls_imputation.png
+  - power_curves_controls_untransformed.png
+  - power_by_outcome_controls_comparison.png
+
+================================================================================ 

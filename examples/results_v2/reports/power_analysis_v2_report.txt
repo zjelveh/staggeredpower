@@ -1,0 +1,69 @@
+================================================================================ 
+POWER ANALYSIS V2 SUMMARY REPORT (with Transformations)
+Generated: 2025-11-09 01:18:40 
+================================================================================ 
+
+DATABASE CONTENTS
+-------------------------------------------------------------------------------- 
+Total simulation runs: 30800
+Transformations: No, ihs
+Models tested: cs, imputation
+
+Rows by transformation:
+   outcome_transformed     N
+                <char> <int>
+1:                  No 15400
+2:                 ihs 15400
+
+
+POWER BY TRANSFORMATION AND MODEL
+-------------------------------------------------------------------------------- 
+   outcome_transformed      model     power mean_att  mean_se n_sims
+                <char>     <char>     <num>    <num>    <num>  <int>
+1:                  No         cs 0.4259740 -1.22628 22.55275   7700
+2:                  No imputation 0.3868831  8.78511 25.17503   7700
+3:                 ihs         cs 0.2806494 -3.46556 20.90784   7700
+4:                 ihs imputation        NA       NA       NA   7700
+
+
+PTA VIOLATIONS BY TRANSFORMATION
+-------------------------------------------------------------------------------- 
+   outcome_transformed mean_units_dropped mean_pct_dropped max_units_dropped
+                <char>              <num>            <num>             <int>
+1:                  No           11.97403         41.93871                31
+2:                 ihs            0.00000          0.00000                 0
+   n_sims
+    <int>
+1:  15400
+2:  15400
+
+
+KEY FINDINGS
+-------------------------------------------------------------------------------- 
+Transformation Comparison:
+
+Untransformed transformation:
+  - Rows: 15400
+  - Average power: 40.64%
+  - Average units dropped: 12.0 (41.9%)
+
+IHS transformation:
+  - Rows: 15400
+  - Average power: NA%
+  - Average units dropped: 0.0 (0.0%)
+
+
+OUTPUT FILES
+-------------------------------------------------------------------------------- 
+Tables (in tables/):
+  - power_by_transform_outcome_model.csv
+  - power_by_transform_effect.csv
+  - final_power_full.csv
+  - pta_violations_by_transformation.csv
+
+Plots (in plots/):
+  - power_curves_by_transformation.png
+  - power_curves_by_outcome_transformation.png
+  - pta_violations_by_transformation.png
+
+================================================================================ 

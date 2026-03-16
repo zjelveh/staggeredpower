@@ -1,0 +1,139 @@
+---
+title: "Advanced Usage"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Advanced Usage}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Grid search with `run_power_grid()`
+
+When exploring power across multiple effect sizes, estimators, or outcomes,
+use `run_power_grid()`:
+
+```{r grid, eval=FALSE}
+library(staggeredpower)
+data(nfs_panel)
+
+results <- run_power_grid(
+  data_clean = nfs_panel,
+  outcome = c("clearance_rate", "assault_rate"),
+  unit_var = "state",
+  time_var = "year",
+  group_var = "treatment_year",
+  treat_ind_var = "treated",
+  pta_type = "imputation",
+  percent_effect = seq(1.05, 1.20, 0.05),
+  models_to_run = c("imputation"),
+  n_sims = 50
+)
+```
+
+## YAML configuration
+
+For complex grid specifications, define parameters in a YAML file:
+
+```{r yaml, eval=FALSE}
+# config.yaml example:
+# outcome:
+#   - clearance_rate
+#   - assault_rate
+# percent_effect:
+#   min: 1.05
+#   max: 1.20
+#   step: 0.05
+
+config <- load_config("config.yaml")
+```
+
+## Noise engines
+
+staggeredpower provides configurable noise for counterfactual generation:
+
+| Engine | Description | Use when |
+|--------|-------------|----------|
+| `"none"` | Deterministic (no noise) | Quick benchmarks, debugging |
+| `"iid"` | IID Normal shocks | Standard power analysis |
+| `"ar1"` | AR(1) per unit | Persistent unit-level shocks |
+| `"ar1_common"` | AR(1) + common shocks | Calendar-year correlation |
+| `"ar1_anchored"` | AR(1) + ATT-anchored | Realistic correlation structure |
+
+```{r noise, eval=FALSE}
+# Compare deterministic vs stochastic
+result_det <- run_power_analysis(
+  data_clean = nfs_panel, outcome = "clearance_rate",
+  unit_var = "state", time_var = "year",
+  group_var = "treatment_year", treat_ind_var = "treated",
+  percent_effect = 1.10, pta_type = "imputation",
+  models_to_run = "imputation", n_sims = 1,
+  noise_spec = list(engine = "none")
+)
+
+result_ar1 <- run_power_analysis(
+  data_clean = nfs_panel, outcome = "clearance_rate",
+  unit_var = "state", time_var = "year",
+  group_var = "treatment_year", treat_ind_var = "treated",
+  percent_effect = 1.10, pta_type = "imputation",
+  models_to_run = "imputation", n_sims = 50,
+  noise_spec = list(engine = "ar1")
+)
+```
+
+## Pre-trend testing
+
+Assess whether pre-treatment trends are parallel:
+
+```{r pretrend, eval=FALSE}
+pretrend <- compute_pretrend_wald_test(
+  data = nfs_panel,
+  outcome_var = "clearance_rate",
+  time_var = "year",
+  id_var = "state",
+  group_var = "treatment_year",
+  cluster_var = "state"
+)
+pretrend
+```
+
+## Custom adapters
+
+Register your own estimator:
+
+```{r custom-adapter, eval=FALSE}
+my_adapter <- estimator_adapter(
+  name = "my_estimator",
+  fit_fn = function(data, outcome_var, time_var, id_var, group_var, ...) {
+    # Your estimation code here
+  },
+  extract_fn = function(result, ...) {
+    standard_estimate(att = result$coef, se = result$se)
+  }
+)
+register_adapter(my_adapter)
+```
+
+## Parallel processing
+
+For large simulations, register a parallel backend:
+
+```{r parallel, eval=FALSE}
+library(doParallel)
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+
+# Now run_power_analysis() and run_power_grid() use all cores
+result <- run_power_analysis(...)
+
+stopCluster(cl)
+```
+
+Without `foreach`/`doParallel` installed, the package automatically falls back
+to sequential `lapply` execution.
