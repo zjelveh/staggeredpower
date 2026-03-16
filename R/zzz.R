@@ -17,8 +17,6 @@
     register_adapter(adapter_did2s())
   }
 
-  # Saturated Poisson ETWFE (Wooldridge 2023) via fixest
-  if (requireNamespace("fixest", quietly = TRUE)) {
-    register_adapter(adapter_etwfe_poisson_glm())  # registers as "etwfe_poisson"
-  }
+  # Saturated Poisson ETWFE (Wooldridge 2023) via fixest (always available — in Imports)
+  register_adapter(adapter_etwfe_poisson_glm())
 }
