@@ -7,7 +7,6 @@
 #' @param event_study_results Event study results
 #' @param pta_type Pta type
 #' @param enforce_type Enforce type
-#' @param model Model type
 #' @param analysis_level Analysis level
 #' @param outcome Outcome variable
 #' @param use_controls Control usage

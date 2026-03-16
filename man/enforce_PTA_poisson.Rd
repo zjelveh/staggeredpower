@@ -52,7 +52,7 @@ observations and generates counterfactual outcomes for treated observations on t
 log-rate scale, then back-transforms to counts or rates.
 
 This implements the multiplicative parallel trends assumption (Wooldridge 2023):
-E\link{Y_t(0)} / E\link{Y_{t-1}(0)} is constant across treatment groups.
+\eqn{E[Y_t(0)] / E[Y_{t-1}(0)]} is constant across treatment groups.
 }
 \details{
 The function follows these steps:
@@ -60,7 +60,7 @@ The function follows these steps:
 \item Converts rates to counts if needed (count = rate * pop / 100000)
 \item Splits data into treated and untreated observations
 \item Estimates Poisson fixed effects model on untreated observations:
-E\link{count | untreated} = exp(alpha_i + gamma_t + X*beta) with log(pop) offset
+\eqn{E[count | untreated] = exp(alpha_i + gamma_t + X*beta)} with log(pop) offset
 \item Uses these estimates to predict counterfactual log-rates for treated observations
 \item Adds Poisson noise (using rpois) to generate stochastic counterfactuals
 \item Converts back to rate scale if needed

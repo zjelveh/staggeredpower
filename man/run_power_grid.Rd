@@ -124,60 +124,21 @@ See package README for detailed examples.
 }
 \examples{
 \donttest{
-library(doParallel)
-
-# Set up parallel backend (REQUIRED for reasonable performance)
-cl <- makeCluster(detectCores() - 1)
-registerDoParallel(cl)
-
-# Test multiple effect sizes and PTA methods
-results <- run_power_grid(
-  data_clean = my_data,
-  unit_var = "state_fips",
-  group_var = "year_passed",
-  time_var = "year",
-  rel_pass_var = "rel_pass",
-  treat_ind_var = "law_pass",
-  outcome = "dv_rate",
-  pta_type = c("cs", "imputation"),
-  percent_effect = seq(0.05, 0.15, 0.05),
-  n_sims = 100,
-  parallel = FALSE  # Grid runs sequentially, sims run in parallel
-)
-
-stopCluster(cl)
-
-# With multiple outcomes
-results <- run_power_grid(
-  data_clean = my_data,
-  unit_var = "state_fips",
-  group_var = "year_passed",
-  time_var = "year",
-  rel_pass_var = "rel_pass",
-  treat_ind_var = "law_pass",
-  outcome = c("dv_rate", "dv_count", "dv_share"),
-  pta_type = "cs",
-  percent_effect = c(0.10, 0.15),
-  n_sims = 100
-)
-
-# With multiple control sets
-results <- run_power_grid(
-  data_clean = my_data,
-  unit_var = "state_fips",
-  group_var = "year_passed",
-  time_var = "year",
-  rel_pass_var = "rel_pass",
-  treat_ind_var = "law_pass",
-  outcome = "dv_rate",
-  controls = list(
-    NULL,
-    c("unemp_rate"),
-    c("unemp_rate", "crime_rate")
-  ),
-  percent_effect = c(0.10, 0.15),
-  n_sims = 100
-)
+# Test multiple effect sizes using bundled dataset
+# (requires 'did' or 'didimputation' package)
+# results <- run_power_grid(
+#   data_clean = nfs_panel,
+#   unit_var = "state",
+#   group_var = "treatment_year",
+#   time_var = "year",
+#   rel_pass_var = "rel_time",
+#   treat_ind_var = "treated",
+#   outcome = "assault_rate",
+#   pta_type = "cs",
+#   percent_effect = c(0.10, 0.15),
+#   n_sims = 2,
+#   parallel = FALSE
+# )
 }
 
 }

@@ -51,8 +51,6 @@ Defaults to \code{"law_pass"} for backward compatibility.}
 
 \item{group_col}{Name of the treatment timing (cohort/group) column in
 \code{data}.  Defaults to \code{"year_passed"} for backward compatibility.}
-
-\item{model}{Model type}
 }
 \description{
 Store Power Analysis Results

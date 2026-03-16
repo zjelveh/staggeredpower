@@ -1,9 +1,6 @@
 # R/pretrend_test.R
 
-# Global variable bindings for R CMD check
-# These are data.table column names that are created within functions
-if(getRversion() >= "2.15.1")  utils::globalVariables(c(".rel_time", ".rel_time_trim", ".group",
-                         "difference", "early", "late", "ratio"))
+# Global variable bindings moved to zzz-globals.R
 
 #' Compute Wald Test on Pre-treatment Coefficients
 #'

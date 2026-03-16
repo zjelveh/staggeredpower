@@ -89,16 +89,16 @@ calibrate_noise_imputation <- function(mod_fe, df_untreated, unit_col, time_col,
   calib <- list(
     scale  = "additive",
     engine = engine,
-    sigma  = sigma(mod_fe)
+    sigma  = stats::sigma(mod_fe)
   )
 
   if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
     # Compute residuals on untreated
-    df_untreated[, .noise_e_hat := resid(mod_fe)]
+    df_untreated[, .noise_e_hat := stats::residuals(mod_fe)]
 
     # Order and create lag
     data.table::setorderv(df_untreated, c(unit_col, time_col))
-    df_untreated[, .noise_e_lag := shift(.noise_e_hat, 1L), by = c(unit_col)]
+    df_untreated[, .noise_e_lag := data.table::shift(.noise_e_hat, 1L), by = c(unit_col)]
 
     # Estimate rho
     complete <- df_untreated[!is.na(.noise_e_lag)]
@@ -127,7 +127,7 @@ calibrate_noise_imputation <- function(mod_fe, df_untreated, unit_col, time_col,
         gamma = as.numeric(gamma)
       )
       data.table::setorder(gamma_dt, time)
-      gamma_dt[, dgamma := gamma - shift(gamma, 1L)]
+      gamma_dt[, dgamma := gamma - data.table::shift(gamma, 1L)]
       calib$u_pool <- gamma_dt[!is.na(dgamma), dgamma]
     }
 
@@ -221,7 +221,7 @@ calibrate_noise_poisson <- function(mod_pois, df_untreated, working_outcome,
   if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
     # Order and create lag
     data.table::setorderv(df_untreated, c(unit_col, time_col))
-    df_untreated[, .noise_e_lag := shift(.noise_e_hat, 1L), by = c(unit_col)]
+    df_untreated[, .noise_e_lag := data.table::shift(.noise_e_hat, 1L), by = c(unit_col)]
 
     # Estimate rho
     complete <- df_untreated[!is.na(.noise_e_lag) & !is.na(.noise_e_hat)]
@@ -249,7 +249,7 @@ calibrate_noise_poisson <- function(mod_pois, df_untreated, working_outcome,
                                .(u_mean = mean(.noise_e_hat, na.rm = TRUE)),
                                by = c(time_col)]
       data.table::setorderv(u_means, time_col)
-      u_means[, du := u_mean - shift(u_mean, 1L)]
+      u_means[, du := u_mean - data.table::shift(u_mean, 1L)]
       calib$u_pool <- u_means[!is.na(du), du]
     }
 
@@ -347,17 +347,14 @@ calibrate_noise_cs <- function(df, unit_col, group_col, time_col, outcome_col,
       }
 
       # Fit regression
-      reg_model <- fastglm::fastglm(
-        x = X_control,
-        y = control_changes$delta_y,
-        family = stats::gaussian(link = "identity")
-      )
+      reg_model <- stats::lm.fit(x = X_control, y = control_changes$delta_y)
+      df_resid <- length(control_changes$delta_y) - ncol(X_control)
 
       # Per-cell residual SD (for iid backward compat)
-      if (reg_model$df.residual == 0) {
+      if (df_resid <= 0) {
         cell_resid_sd <- sqrt(sum(reg_model$residuals^2) / 1)
       } else {
-        cell_resid_sd <- sqrt(sum(reg_model$residuals^2) / reg_model$df.residual)
+        cell_resid_sd <- sqrt(sum(reg_model$residuals^2) / df_resid)
       }
       resid_sd_by_cell[[paste(g, rp, sep = "_")]] <- cell_resid_sd
 
@@ -441,7 +438,7 @@ calibrate_noise_cs <- function(df, unit_col, group_col, time_col, outcome_col,
     # Estimate rho from one-step innovations by unit
     # Create lagged innovations within each unit
     data.table::setorderv(onestep_dt, c("unit", "calendar_year"))
-    onestep_dt[, r_tilde_lag := shift(r_tilde, 1L), by = unit]
+    onestep_dt[, r_tilde_lag := data.table::shift(r_tilde, 1L), by = unit]
     complete <- onestep_dt[!is.na(r_tilde_lag) & !is.na(r_tilde)]
 
     if (nrow(complete) > 5) {

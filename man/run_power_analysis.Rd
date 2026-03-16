@@ -40,6 +40,14 @@ run_power_analysis(
 
 \item{unit_var}{Level of analysis (state or county)}
 
+\item{group_var}{Character. Name of the treatment group/cohort column}
+
+\item{time_var}{Character. Name of the time period column}
+
+\item{rel_pass_var}{Character. Name of the relative time to treatment column}
+
+\item{treat_ind_var}{Character. Name of the treatment indicator column}
+
 \item{controls}{list of controls}
 
 \item{outcome}{Outcome variable}
@@ -54,6 +62,8 @@ with zeros (e.g., crime counts). When transformed, PTA violations are not checke
 
 \item{percent_effect}{Effect size to simulate}
 
+\item{models_to_run}{Character vector. Models to estimate (default c('cs', 'imputation'))}
+
 \item{n_sims}{Number of simulations}
 
 \item{min_year}{Numeric. Minimum year to include (optional, default NULL = no minimum)}
@@ -65,6 +75,8 @@ with zeros (e.g., crime counts). When transformed, PTA violations are not checke
 \item{outcome_type}{Character. Type of outcome: "rate" or "count" (default NULL = rate)}
 
 \item{pop_var}{Character. Population variable name for Poisson models (default NULL)}
+
+\item{total_count_var}{Character. Total count variable for binomial models (default NULL)}
 
 \item{family}{Character. Distribution family for etwfe: NULL (linear) or "poisson" (default NULL)}
 
@@ -82,6 +94,12 @@ See \code{\link{normalize_noise_spec}} for full options.}
 \item{design_resample}{Character. Design-level resampling: "none" (default) or
 "cluster_bootstrap" (not yet implemented). When engine="none", this is the only way
 to get a rejection probability without outcome noise.}
+
+\item{allow_unbalanced_panel}{Logical. Allow unbalanced panels (default FALSE)}
+
+\item{est_method}{Character. Estimation method for CS estimator (default "dr")}
+
+\item{base_period}{Character. Base period for CS estimator (default "varying")}
 }
 \description{
 Run Power Analysis with Parallel Trends

@@ -21,13 +21,13 @@ compute_te(
 
 \item{enforce_type}{Method for enforcing parallel trends}
 
-\item{time_var}{time_var variable}
+\item{group_var}{Group variable name}
 
-\item{rel_pass_var}{rel_pass_var variable}
+\item{time_var}{Time variable name}
 
-\item{outcome}{Outcome variable}
+\item{rel_pass_var}{Relative passage variable name}
 
-\item{group}{Group variable}
+\item{outcome}{Outcome variable name}
 }
 \description{
 Compute Treatment Effects

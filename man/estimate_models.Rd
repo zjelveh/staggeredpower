@@ -88,27 +88,16 @@ and package-specific translation.
 }
 \examples{
 \donttest{
-# Example 1: Rate data, linear estimators (backward compatible)
-results <- estimate_models(
-  data = my_data,
-  id_var = "state",
-  outcome_var = "y_rate",
-  time_var = "year",
-  group_var = "cohort",
-  models_to_run = c("cs", "imputation")
-)
-
-# Example 2: Count data, all estimators including Poisson
-results <- estimate_models(
-  data = my_data,
-  id_var = "state",
-  outcome_var = "y_count",
-  time_var = "year",
-  group_var = "cohort",
-  outcome_type = "count",
-  pop_var = "population",
-  family = "poisson",
-  models_to_run = c("cs", "imputation", "etwfe_poisson")
-)
+# Estimate models using bundled dataset (requires 'did' or 'didimputation')
+# if (requireNamespace("did", quietly = TRUE)) {
+#   results <- estimate_models(
+#     data = nfs_panel,
+#     id_var = "state",
+#     outcome_var = "assault_rate",
+#     time_var = "year",
+#     group_var = "treatment_year",
+#     models_to_run = c("cs")
+#   )
+# }
 }
 }

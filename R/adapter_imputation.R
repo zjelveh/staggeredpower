@@ -10,8 +10,9 @@
 #' @examples
 #' \donttest{
 #' adapter <- adapter_imputation()
-#' result <- adapter$fit(data = my_data, outcome_var = "y", ...)
-#' std_result <- adapter$extract(result)
+#' # result <- adapter$fit(data = my_data, outcome_var = "y",
+#' #   time_var = "year", id_var = "unit", group_var = "group")
+#' # std_result <- adapter$extract(result)
 #' }
 adapter_imputation <- function() {
 

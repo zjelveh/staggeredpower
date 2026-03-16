@@ -3,6 +3,10 @@
 #'
 #' @param data_clean Clean panel dataset
 #' @param unit_var Level of analysis (state or county)
+#' @param group_var Character. Name of the treatment group/cohort column
+#' @param time_var Character. Name of the time period column
+#' @param rel_pass_var Character. Name of the relative time to treatment column
+#' @param treat_ind_var Character. Name of the treatment indicator column
 #' @param pta_type Which pta assumption ("cs" or "imputation")
 #' @param enforce_type Method for enforcing parallel trends
 #' @param outcome Outcome variable
@@ -11,12 +15,14 @@
 #'   with zeros (e.g., crime counts). When transformed, PTA violations are not checked.
 #' @param controls list of controls
 #' @param percent_effect Effect size to simulate
+#' @param models_to_run Character vector. Models to estimate (default c('cs', 'imputation'))
 #' @param n_sims Number of simulations
 #' @param min_year Numeric. Minimum year to include (optional, default NULL = no minimum)
 #' @param max_year Numeric. Maximum year to include (optional, default NULL = no maximum)
 #' @param pretrend_test Logical. Whether to compute pre-trend tests (default FALSE)
 #' @param outcome_type Character. Type of outcome: "rate" or "count" (default NULL = rate)
 #' @param pop_var Character. Population variable name for Poisson models (default NULL)
+#' @param total_count_var Character. Total count variable for binomial models (default NULL)
 #' @param family Character. Distribution family for etwfe: NULL (linear) or "poisson" (default NULL)
 #' @param trend_type Character. Type of time trend for PTA enforcement: 'common' (default) uses
 #'   standard TWFE with common time effects for all cohorts; 'cohort_trend' estimates cohort-specific
@@ -29,6 +35,9 @@
 #' @param design_resample Character. Design-level resampling: "none" (default) or
 #'   "cluster_bootstrap" (not yet implemented). When engine="none", this is the only way
 #'   to get a rejection probability without outcome noise.
+#' @param allow_unbalanced_panel Logical. Allow unbalanced panels (default FALSE)
+#' @param est_method Character. Estimation method for CS estimator (default "dr")
+#' @param base_period Character. Base period for CS estimator (default "varying")
 #' @export
 run_power_analysis <- function(data_clean,
                                unit_var,
@@ -134,7 +143,7 @@ run_power_analysis <- function(data_clean,
 
   # Initial PTA enforcement (used for bound-error diagnostics only)
   pta_enforced_orig = enforce_PTA(
-    copy(data_clean_full),
+    data.table::copy(data_clean_full),
     unit = unit_var,
     group = group_var,
     time = time_var,
@@ -207,7 +216,7 @@ run_power_analysis <- function(data_clean,
         noise_spec = noise_spec
       )
       # Now scale the counterfactual outcomes within the simulation
-      counterfactual_data = copy(pta_enforced_sim)
+      counterfactual_data = data.table::copy(pta_enforced_sim)
       counterfactual_data[, y_cf := counterfactual]
 
       RATE_SCALE <- 100000
@@ -252,7 +261,7 @@ run_power_analysis <- function(data_clean,
         counterfactual_data[y_cf > 1, y_cf := 1]
       }
 
-      model_data = copy(counterfactual_data)
+      model_data = data.table::copy(counterfactual_data)
 
       if(sum(model_data[[treat_ind_var]])>0){
         # Model estimation using adapter pattern
@@ -317,7 +326,7 @@ run_power_analysis <- function(data_clean,
           )
         }
 
-        returnz = list(results=rbindlist(new_temp))
+        returnz = list(results=data.table::rbindlist(new_temp))
       }
 
       return(returnz)
@@ -340,7 +349,7 @@ run_power_analysis <- function(data_clean,
     final_power_list[[length(final_power_list)+1]] = i$results
   }
 
-  final_power = rbindlist(final_power_list)
+  final_power = data.table::rbindlist(final_power_list)
 
   # Build violation summary from initial enforcement
   if (is.null(transform_outcome) && (n_bound_errors > 0 || n_na_errors > 0)) {

@@ -49,7 +49,7 @@ sample_lognormal_with_mean <- function(n, desired_mean, cv = 0.5) {
   mu <- log(desired_mean) - sigma^2 / 2
   
   # Generate samples
-  samples <- rlnorm(n, meanlog = mu, sdlog = sigma)
+  samples <- stats::rlnorm(n, meanlog = mu, sdlog = sigma)
   
   return(samples)
   

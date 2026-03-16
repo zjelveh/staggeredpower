@@ -15,7 +15,8 @@ Translates between staggeredpower's common interface and the \code{did} package
 \examples{
 \donttest{
 adapter <- adapter_cs()
-result <- adapter$fit(data = my_data, outcome_var = "y", ...)
-std_result <- adapter$extract(result)
+# result <- adapter$fit(data = my_data, outcome_var = "y",
+#   time_var = "year", id_var = "unit", group_var = "group")
+# std_result <- adapter$extract(result)
 }
 }

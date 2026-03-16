@@ -54,7 +54,7 @@ as legacy behavior). See \code{\link{normalize_noise_spec}} for options:
 \item{engine}{"none" (deterministic), "iid" (default, legacy), "ar1", or "ar1_common"}
 \item{innovation}{"normal" (default) or "empirical" (resample from residuals)}
 \item{common_shock}{TRUE/FALSE. Whether to include common calendar-year shocks.}
-\item{rho}{NULL (auto-estimate) or numeric in \link{0, 0.99}. AR(1) persistence parameter.}
+\item{rho}{NULL (auto-estimate) or numeric in \eqn{[0, 0.99]}. AR(1) persistence parameter.}
 \item{cs_pool}{"global" (default) or "cohort". How to pool CS innovations.}
 \item{obs_model}{"deterministic" or "poisson" (default). For Poisson PTA only.}
 }}
@@ -81,26 +81,14 @@ appropriate for rare count outcomes (Wooldridge 2023).}
 }
 \examples{
 \donttest{
-# Linear approach (additive PT)
+# Linear approach (additive PT) using bundled dataset
 pta_results <- enforce_PTA(
-  df = data,
-  unit = "county_name",
-  group = "year_passed",
+  df = nfs_panel,
+  unit = "state",
+  group = "treatment_year",
   time = "year",
-  outcome = "rate_per_100k",
+  outcome = "assault_rate",
   method = "imputation"
-)
-
-# Poisson approach (multiplicative PT)
-pta_results <- enforce_PTA(
-  df = data,
-  unit = "county_name",
-  group = "year_passed",
-  time = "year",
-  outcome = "count",
-  method = "poisson",
-  pop_var = "population",
-  outcome_type = "count"
 )
 }
 

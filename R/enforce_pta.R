@@ -26,7 +26,7 @@
 #'     \item{engine}{"none" (deterministic), "iid" (default, legacy), "ar1", or "ar1_common"}
 #'     \item{innovation}{"normal" (default) or "empirical" (resample from residuals)}
 #'     \item{common_shock}{TRUE/FALSE. Whether to include common calendar-year shocks.}
-#'     \item{rho}{NULL (auto-estimate) or numeric in [0, 0.99]. AR(1) persistence parameter.}
+#'     \item{rho}{NULL (auto-estimate) or numeric in \eqn{[0, 0.99]}. AR(1) persistence parameter.}
 #'     \item{cs_pool}{"global" (default) or "cohort". How to pool CS innovations.}
 #'     \item{obs_model}{"deterministic" or "poisson" (default). For Poisson PTA only.}
 #'   }
@@ -47,26 +47,14 @@
 #'
 #' @examples
 #' \donttest{
-#' # Linear approach (additive PT)
+#' # Linear approach (additive PT) using bundled dataset
 #' pta_results <- enforce_PTA(
-#'   df = data,
-#'   unit = "county_name",
-#'   group = "year_passed",
+#'   df = nfs_panel,
+#'   unit = "state",
+#'   group = "treatment_year",
 #'   time = "year",
-#'   outcome = "rate_per_100k",
+#'   outcome = "assault_rate",
 #'   method = "imputation"
-#' )
-#'
-#' # Poisson approach (multiplicative PT)
-#' pta_results <- enforce_PTA(
-#'   df = data,
-#'   unit = "county_name",
-#'   group = "year_passed",
-#'   time = "year",
-#'   outcome = "count",
-#'   method = "poisson",
-#'   pop_var = "population",
-#'   outcome_type = "count"
 #' )
 #' }
 #'
@@ -141,7 +129,7 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
   noise_spec <- normalize_noise_spec(noise_spec)
   if (!is.null(seed)) set.seed(seed)
 
-  df <- copy(df)
+  df <- data.table::as.data.table(df)
 
   # Create local copies of variable names for data.table scoping
   # This avoids conflicts when parameter names match column names
@@ -204,31 +192,31 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
     }
   }
 
-  mod_fe <- feols(fe_formula, data = df_untreated)
-  resid_sd <- sigma(mod_fe)
+  mod_fe <- fixest::feols(fe_formula, data = df_untreated)
+  resid_sd <- stats::sigma(mod_fe)
 
   # Calibrate noise engine
   noise_calib <- calibrate_noise_imputation(mod_fe, df_untreated, unit_col, time_col, noise_spec)
 
   # Extract fixed effects
   # Try to preserve the original data type
-  unit_names <- names(fixef(mod_fe)[[unit_col]])
+  unit_names <- names(fixest::fixef(mod_fe)[[unit_col]])
   if(is.numeric(df[[unit_col]])) {
     unit_names <- as.numeric(unit_names)
   }
   unit_effects <- data.table(
     unit = unit_names,
-    unit_effect = as.numeric(fixef(mod_fe)[[unit_col]])
+    unit_effect = as.numeric(fixest::fixef(mod_fe)[[unit_col]])
   )
   setnames(unit_effects, "unit", unit_col)  # Rename to match df column name
 
-  time_names <- names(fixef(mod_fe)[[time_col]])
+  time_names <- names(fixest::fixef(mod_fe)[[time_col]])
   if(is.numeric(df[[time_col]])) {
     time_names <- as.numeric(time_names)
   }
   time_effects <- data.table(
     time = time_names,
-    time_effect = as.numeric(fixef(mod_fe)[[time_col]])
+    time_effect = as.numeric(fixest::fixef(mod_fe)[[time_col]])
   )
   setnames(time_effects, "time", time_col)  # Rename to match df column name
 
@@ -305,7 +293,7 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
                             units = treated_rows[[unit_col]],
                             times = treated_rows[[time_col]])
       # Merge eps into df (keyed by unit + time)
-      eps_dt_named <- copy(eps_dt)
+      eps_dt_named <- data.table::copy(eps_dt)
       setnames(eps_dt_named, c("unit", "time"), c(unit_col, time_col))
       df[eps_dt_named, on = c(unit_col, time_col), .noise_eps := i.eps]
       df[is.na(.noise_eps), .noise_eps := 0]
@@ -343,7 +331,7 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   max_year <- max(df[[time_col]])
 
   # Make a copy to store counterfactuals
-  df_new <- copy(df)
+  df_new <- data.table::as.data.table(df)
   df_new[, counterfactual := get(outcome_col)]
 
   # Calculate rel_pass if not present
@@ -415,17 +403,14 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
 
       if (length(control_changes$delta_y) > 0) {
         # Fit regression
-        reg_model <- fastglm::fastglm(
-          x = X_control,
-          y = control_changes$delta_y,
-          family = stats::gaussian(link = "identity")
-        )
+        reg_model <- stats::lm.fit(x = X_control, y = control_changes$delta_y)
+        df_resid <- length(control_changes$delta_y) - ncol(X_control)
 
         # Per-cell residual SD (used for iid engine)
-        if (reg_model$df.residual == 0) {
+        if (df_resid <= 0) {
           resid_sd <- sqrt(sum(reg_model$residuals^2) / 1)
         } else {
-          resid_sd <- sqrt(sum(reg_model$residuals^2) / reg_model$df.residual)
+          resid_sd <- sqrt(sum(reg_model$residuals^2) / df_resid)
         }
 
         # Get treated units at pre-treatment period
@@ -488,7 +473,7 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
 #' log-rate scale, then back-transforms to counts or rates.
 #'
 #' This implements the multiplicative parallel trends assumption (Wooldridge 2023):
-#' E[Y_t(0)] / E[Y_{t-1}(0)] is constant across treatment groups.
+#' \eqn{E[Y_t(0)] / E[Y_{t-1}(0)]} is constant across treatment groups.
 #'
 #' @param df A data.table containing the panel data
 #' @param unit Character string specifying the column name for unit identifiers
@@ -509,7 +494,7 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
 #' 1. Converts rates to counts if needed (count = rate * pop / 100000)
 #' 2. Splits data into treated and untreated observations
 #' 3. Estimates Poisson fixed effects model on untreated observations:
-#'    E[count | untreated] = exp(alpha_i + gamma_t + X*beta) with log(pop) offset
+#'    \eqn{E[count | untreated] = exp(alpha_i + gamma_t + X*beta)} with log(pop) offset
 #' 4. Uses these estimates to predict counterfactual log-rates for treated observations
 #' 5. Adds Poisson noise (using rpois) to generate stochastic counterfactuals
 #' 6. Converts back to rate scale if needed
@@ -533,7 +518,7 @@ enforce_PTA_poisson <- function(df, unit, group, time, outcome,
     stop("enforce_PTA_poisson requires pop_var to be specified")
   }
 
-  df <- data.table::copy(df)
+  df <- data.table::as.data.table(df)
 
   # Validate population variable
   if (!(pop_var %in% names(df))) {

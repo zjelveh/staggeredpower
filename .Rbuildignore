@@ -7,3 +7,7 @@
 ^\.github$
 ^data-raw$
 ^_pkgdown\.yml$
+^\.ipynb_checkpoints$
+^power_analysis_results\.sqlite$
+^test_new_features\.R$
+^\.worktrees$
