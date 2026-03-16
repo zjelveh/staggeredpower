@@ -155,9 +155,6 @@ run_power_grid <- function(data_clean,
                           noise_spec = list(engine = "none"),
                           design_resample = "none") {
 
-  # Load required packages
-  require(data.table)
-
   # Input validation
   if (!is.character(outcome)) {
     stop("outcome must be a character vector of column names")
@@ -297,26 +294,33 @@ run_power_grid <- function(data_clean,
     }
 
     # Run across grid
-    if(parallel) {
-      require(foreach)
-      require(doParallel)
+    if(parallel && requireNamespace("foreach", quietly = TRUE) &&
+       requireNamespace("doParallel", quietly = TRUE)) {
+
+      # Local operator assignment — required when foreach is in Suggests
+      `%dopar%` <- foreach::`%dopar%`
 
       if(is.null(n_cores)) {
         n_cores <- parallel::detectCores() - 1
       }
 
-      cl <- makeCluster(n_cores)
-      registerDoParallel(cl)
+      cl <- parallel::makeCluster(n_cores)
+      doParallel::registerDoParallel(cl)
+      on.exit(parallel::stopCluster(cl), add = TRUE)
 
       cat(sprintf("Running in parallel with %d cores...\n", n_cores))
 
-      results_list <- foreach(i = 1:nrow(grid),
+      results_list <- foreach::foreach(i = 1:nrow(grid),
                              .packages = c("data.table", "staggeredpower")) %dopar% {
         run_single_spec(grid[i])
       }
 
-      stopCluster(cl)
     } else {
+      if (parallel) {
+        message("Packages 'foreach' and 'doParallel' are needed for parallel execution. ",
+                "Install with: install.packages(c('foreach', 'doParallel'))\n",
+                "Falling back to sequential execution.")
+      }
       # Sequential execution
       results_list <- lapply(1:nrow(grid), function(i) {
         run_single_spec(grid[i])
