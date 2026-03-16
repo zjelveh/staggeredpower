@@ -14,6 +14,10 @@
 #' @param drop_add_states State dropping
 #' @param result_type Result type
 #' @param transform_outcome Transform outcome variable
+#' @param treat_col Name of the treatment indicator column in \code{data}.
+#'   Defaults to \code{"law_pass"} for backward compatibility.
+#' @param group_col Name of the treatment timing (cohort/group) column in
+#'   \code{data}.  Defaults to \code{"year_passed"} for backward compatibility.
 #' @export
 store_results <- function(results,
                           data,
@@ -26,7 +30,9 @@ store_results <- function(results,
                           use_controls,
                           drop_add_states,
                           result_type,
-                          transform_outcome) {
+                          transform_outcome,
+                          treat_col = "law_pass",
+                          group_col = "year_passed") {
   for(model in names(results)) {
     if(model%in%c('etwfe', 'imputation')){
       att = results[[model]]$agg$estimate
@@ -67,10 +73,10 @@ store_results <- function(results,
       outcome = outcome,
       att = att,
       se = se,
-      ng = length(unique(data$year_passed)), 
+      ng = length(unique(data[[group_col]])),
       n = nrow(data),
       controls = paste0(use_controls, collapse='*'),
-      ybar = mean(data[law_pass==0][[outcome]], na.rm=TRUE),
+      ybar = mean(data[get(treat_col) == 0][[outcome]], na.rm=TRUE),
       drop_add_states = drop_add_states,
       result_type = result_type,
       transform_outcome = transform_outcome
