@@ -1,19 +1,39 @@
 # staggeredpower
 
+<!-- badges: start -->
+[![R-CMD-check](https://github.com/zjelveh/staggeredpower/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/zjelveh/staggeredpower/actions/workflows/R-CMD-check.yaml)
+<!-- badges: end -->
+
 Simulated power analysis for heterogeneity-robust difference-in-difference designs.
 
 ## Installation
 
 ```r
-# install.packages("devtools")
-devtools::install_github("zjelveh/staggeredpower")
+# install.packages("remotes")
+remotes::install_github("zjelveh/staggeredpower")
 ```
 
-## Important: Parallel Processing Setup
+### Optional Dependencies
 
-**This package requires parallel processing setup for reasonable performance.** Monte Carlo simulations use the `foreach` package with `%dopar%`, which requires a registered parallel backend.
+staggeredpower uses a pluggable adapter architecture. Install the estimators you need:
 
-### Required Setup (Do This First!)
+```r
+# Callaway-Sant'Anna
+install.packages("did")
+
+# Gardner Two-Stage DiD
+install.packages("did2s")
+
+# Borusyak-Jaravel-Spiess Imputation
+install.packages("didimputation")
+
+# Parallel processing (recommended for large simulations)
+install.packages(c("foreach", "doParallel"))
+```
+
+## Optional: Parallel Processing
+
+Registering a parallel backend can significantly speed up Monte Carlo simulations. The package automatically falls back to sequential processing if no backend is registered.
 
 ```r
 library(doParallel)
@@ -28,10 +48,7 @@ registerDoParallel(cl)
 stopCluster(cl)
 ```
 
-**Without this setup:**
-- Functions will run SEQUENTIALLY (very slow)
-- You'll see a warning about missing parallel backend
-- Analysis with `n_sims = 100` could take hours instead of minutes
+Without a parallel backend, functions will run sequentially using `lapply`. This is fine for small simulations but may be slow for large grids with many iterations.
 
 
 ## Usage
