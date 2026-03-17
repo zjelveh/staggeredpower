@@ -10,3 +10,4 @@ examples/*.sqlite
 examples/*.log
 examples/results/
 .worktrees/
+examples/results_v3/

@@ -1,7 +1,0 @@
-outcome_transformed,control_label,mean_units_dropped,mean_pct_dropped,max_units_dropped,n_sims
-No,No controls,11.7597402597403,40.8683473389356,31,30800
-No,Economic + Crime,9.30519480519481,30.3038791274085,33,30800
-No,Econ + Crime + DV policies,9.07792207792208,28.2539682539683,30,30800
-ihs,No controls,0,0,0,30800
-ihs,Economic + Crime,0,0,0,30800
-ihs,Econ + Crime + DV policies,0,0,0,28600
