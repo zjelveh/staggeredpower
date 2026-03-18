@@ -94,7 +94,8 @@ calibrate_noise_imputation <- function(mod_fe, df_untreated, unit_col, time_col,
 
   if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
     # Compute residuals on untreated
-    df_untreated[, .noise_e_hat := stats::residuals(mod_fe)]
+    # Use na.rm=FALSE to get vector same length as input (NAs for dropped singletons)
+    df_untreated[, .noise_e_hat := stats::residuals(mod_fe, na.rm = FALSE)]
 
     # Order and create lag
     data.table::setorderv(df_untreated, c(unit_col, time_col))
