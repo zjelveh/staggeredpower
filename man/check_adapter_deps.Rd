@@ -15,3 +15,4 @@ TRUE if dependencies available, throws error otherwise
 \description{
 Check Package Dependencies
 }
+\keyword{internal}

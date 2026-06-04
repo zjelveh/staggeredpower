@@ -13,4 +13,4 @@ An object of class \code{environment} of length 4.
 \description{
 Global registry for storing estimator adapters
 }
-\keyword{datasets}
+\keyword{internal}

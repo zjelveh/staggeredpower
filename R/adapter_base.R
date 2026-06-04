@@ -66,6 +66,7 @@ standard_estimate <- function(att, se, model_name,
 #' Adapter Registry
 #'
 #' Global registry for storing estimator adapters
+#' @keywords internal
 .adapter_registry <- new.env(parent = emptyenv())
 
 #' Register an Adapter
@@ -104,6 +105,7 @@ list_adapters <- function() {
 #'
 #' @param adapter An estimator_adapter object
 #' @return TRUE if dependencies available, throws error otherwise
+#' @keywords internal
 check_adapter_deps <- function(adapter) {
   if (!is.null(adapter$requires)) {
     for (pkg in adapter$requires) {
