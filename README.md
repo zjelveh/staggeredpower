@@ -59,18 +59,20 @@ Use `run_power_analysis()` to estimate power for one set of parameters.
 
 **What it does:**
 1. Generates counterfactual outcomes under parallel trends assumption
-2. Simulates treatment effects of a specified magnitude
+2. Simulates treatment multipliers of a specified magnitude
 3. Estimates DiD models and calculates statistical significance rates
 
 **Data requirements:**
 
-Your data should be a balanced panel with:
+Your data should be a panel dataset with:
 - Unit identifier (e.g., `state_fips`, `county_name`)
 - Time variable (e.g., `year`)
-- Treatment cohort (e.g., `year_passed` - year unit adopted treatment)
+- Treatment cohort (e.g., `year_passed` - year unit adopted treatment; use `0` or `NA` for never-treated units)
 - Treatment indicator (e.g., `law_pass` - 0 before, 1 after adoption)
 - Outcome variable(s)
 - Relative time to treatment (e.g., `rel_pass` = `year` - `year_passed`)
+
+Balanced panels are not required. By default, the package follows the underlying estimator defaults and assumes a balanced panel for Callaway-Sant'Anna estimation. If your panel is unbalanced, pass `allow_unbalanced_panel = TRUE`; this is forwarded to `did::att_gt()` for CS specifications. Other estimators may have their own support requirements, so check estimator-specific warnings and missing-result rows.
 
 **Example:**
 
@@ -97,15 +99,19 @@ results <- run_power_analysis(
   # PTA enforcement method
   pta_type = "cs",                # "cs" or "imputation"
 
-  # Simulated effect size
-  percent_effect = 0.10,          # Simulate 10% effect (this is a decline, new outcome is 10 percent of original outcome)
+  # Simulated treatment multiplier
+  percent_effect = 0.90,          # Simulate a 10% decline (post-treatment outcomes are 90% of counterfactual)
 
   # Number of simulations
-  n_sims = 100,                   # Num iterations per simulated treatment ffect
+  n_sims = 100,                   # Number of Monte Carlo draws
 
   # Optional: controls and estimators
   controls = c("unemp_rate"),
-  models_to_run = c("cs", "imputation")
+  models_to_run = c("cs", "imputation"),
+
+  # Optional: unbalanced panels and stochastic outcome noise
+  allow_unbalanced_panel = TRUE,
+  noise_spec = list(engine = "iid")
 )
 ```
 
@@ -115,14 +121,25 @@ results <- run_power_analysis(
   - `"cs"`: Callaway-Sant'Anna approach (recommended)
   - `"imputation"`: Two-way fixed effects imputation
 
-- **`percent_effect`**: Treatment effect to simulate as proportion of baseline outcome
-  - Example: If baseline = 5.0, `percent_effect = 0.10` simulates effect = 0.5
+- **`percent_effect`**: Treatment multiplier applied to post-treatment counterfactual outcomes
+  - `percent_effect = 1.00` means no effect
+  - `percent_effect = 0.90` means a 10% decline
+  - `percent_effect = 1.10` means a 10% increase
 
 - **`n_sims`**: Number of Monte Carlo simulations
   - 100 for quick estimates, 500+ for publication results
+  - With `noise_spec = list(engine = "none")`, simulations are deterministic and the package sets `n_sims = 1`
 
 - **`controls`**: Control variables (optional)
   - Used in both PTA enforcement and estimation
+
+- **`allow_unbalanced_panel`**: Whether to allow unbalanced panels in CS estimation
+  - Default is `FALSE`, matching `did::att_gt()`
+  - Set to `TRUE` for unbalanced state-year or agency-year panels
+
+- **`noise_spec`**: Outcome-noise configuration
+  - Default is `list(engine = "none")`, a deterministic benchmark
+  - Use `list(engine = "iid")`, `list(engine = "ar1")`, or observation models such as `obs_model = "poisson"` / `"binomial"` for stochastic power calculations
 
 **Interpreting results:**
 
@@ -136,16 +153,17 @@ head(results$final_power)
 
 # Calculate power by estimator
 power_by_model <- results$final_power[, .(
-  power = mean(abs(att/se) > 1.96),     # % rejecting null at 5%
+  power = mean(abs(att/se) > 1.96),     # Share rejecting null at 5%
   mean_att = mean(att),                  # Average estimated effect
   mean_se = mean(se),                    # Average standard error
-  mean_units_dropped = mean(n_dropped_units)
+  mean_bound_errors = mean(n_bound_errors),
+  mean_violating_units = mean(n_violating_units)
 ), by = model]
 
 print(power_by_model)
-#    model power mean_att mean_se mean_units_dropped
-# 1:    cs  0.82    -0.51    0.24                3.2
-# 2:  imputation  0.76    -0.48    0.26                0.0
+#    model power mean_att mean_se mean_bound_errors mean_violating_units
+# 1:    cs  0.82    -0.51    0.24              0.0                  0.0
+# 2: imputation 0.76    -0.48    0.26              0.0                  0.0
 ```
 
 Power of 0.82 means 82% chance of detecting the effect at 5% significance level.
@@ -154,9 +172,9 @@ Power of 0.82 means 82% chance of detecting the effect at 5% significance level.
 
 Use `run_power_grid()` to test power across many parameter combinations.
 
-**When to use:** You want to explore how power changes across different effect sizes, PTA methods, or control specifications. **We recommend this approach**
+**When to use:** You want to explore how power changes across different treatment multipliers, PTA methods, or control specifications. **We recommend this approach**
 
-**Example - Testing multiple effect sizes:**
+**Example - Testing multiple treatment multipliers:**
 
 ```r
 grid_results <- run_power_grid(
@@ -170,7 +188,7 @@ grid_results <- run_power_grid(
 
   # Vectors of parameters to test
   pta_type = c("cs", "imputation"),
-  percent_effect = seq(0.05, 0.20, 0.05),  # Test 5%, 10%, 15%, 20%
+  percent_effect = seq(0.80, 1.00, 0.05),  # Test 20%, 15%, 10%, 5%, 0% declines
 
   n_sims = 100
 )
@@ -198,7 +216,7 @@ grid_results <- run_power_grid(
     c("unemp_rate", "crime_rate")  # Both controls
   ),
 
-  percent_effect = c(0.10, 0.15, 0.20),
+  percent_effect = c(0.80, 0.85, 0.90),
   n_sims = 100
 )
 
@@ -228,7 +246,7 @@ ggplot(grid_results$power_summary,
   geom_point() +
   geom_hline(yintercept = 0.80, linetype = "dashed") +
   labs(title = "Statistical Power by Effect Size",
-       x = "Simulated Effect Size",
+       x = "Treatment Multiplier",
        y = "Power",
        color = "PTA Method") +
   theme_minimal()
@@ -242,13 +260,15 @@ Contains one row per simulation with columns:
 - `att`: Estimated treatment effect
 - `se`: Standard error
 - `model`: Which estimator ("cs", "imputation", "twfe")
-- `percent_effect`: Simulated effect size
-- `n_dropped_units`: Units dropped due to PTA violations
-- `share_units_dropped`: Proportion of sample dropped
+- `percent_effect`: Simulated treatment multiplier
+- `n_bound_errors`: Number of counterfactual draws below the feasible lower bound before clipping
+- `n_violating_units`: Number of units with diagnostic bound or missing-counterfactual issues
+- `noise_engine`: Noise engine used for the simulation
+- `obs_model`: Observation model used for stochastic draws
 
 **`final_vio` table:**
 
-Shows which units violated parallel trends in which simulations. Useful for understanding which units frequently cause violations.
+Legacy diagnostics for parallel-trends/bound violations. In current versions, bound violations are tracked diagnostically and units are not dropped automatically from the power simulations.
 
 ```r
 # Summarize frequent violators
@@ -259,50 +279,23 @@ violation_summary <- results$final_vio[, .N, by = .(unit, iteration)][, .(
 print(violation_summary)
 ```
 
-**PTA violations:**
+**PTA and bound diagnostics:**
 
-The CS and Imp methods may drop units that violate parallel trends. This is tracked in:
-- `n_dropped_units`: How many units dropped per simulation
-- `share_units_dropped`: Proportion of sample dropped
+The CS and imputation PTA generators can produce infeasible or missing counterfactuals in sparse panels or with noisy outcomes. Current versions treat these as diagnostics rather than automatically dropping units:
+- `n_bound_errors`: number of counterfactual values below zero before clipping
+- `n_violating_units`: number of units with bound or missing-counterfactual diagnostics
 
-More violations → smaller effective sample → lower power.
+Many diagnostics may indicate a fragile specification, even if the estimator still returns results.
 
 
-## Examples
+## Vignettes
 
-The `examples/` directory contains complete workflows demonstrating real-world usage:
-
-### Large-Scale Analysis (`examples/large_scale_analysis.R`)
-
-This example shows how to run power analysis at scale across multiple outcomes and configurations:
-
-**Quick start:**
+The package documentation is organized around vignettes rather than a separate `examples/` directory:
 
 ```r
-# 1. Navigate to examples directory
-setwd("path/to/staggeredpower/examples")
-
-# 2. Load your data (see example for data structure requirements)
-# source('your_data_loading_script.R')
-
-# 3. Review and customize pwr_config.yaml for your analysis
-
-# 4. Run the example
-source('large_scale_analysis.R')
-
-# 5. Query results from the SQLite database
-db <- dbConnect(SQLite(), "power_analysis_results.sqlite")
-results <- dbReadTable(db, "power_summary")
-dbDisconnect(db)
+vignette("getting-started", package = "staggeredpower")
+vignette("advanced-usage", package = "staggeredpower")
 ```
 
-**What it demonstrates:**
-- Running grid search for multiple outcomes simultaneously (new feature!)
-- Configurable year filtering with `min_year` and `max_year` parameters
-- Config-driven parameter grids for reproducibility
-- Database storage for large-scale results
-- Retry logic for database writes
-- Result querying and visualization
-
-The example is extensively commented and can be adapted to your specific use case.
+`getting-started` introduces the main workflow. `advanced-usage` covers grid searches, noise engines, pre-trend tests, and custom estimator adapters.
 
