@@ -36,6 +36,21 @@
 #'   Only affects imputation and etwfe_poisson adapters.
 #' @param trend_order Integer. Polynomial order for trends (default 1 = linear).
 #'   Currently only linear trends (order=1) are supported for unit_trend.
+#' @param allow_unbalanced_panel Logical (default FALSE, matching \code{did}).
+#'   Passed to \code{did::att_gt()} for the CS/etwfe adapters. When FALSE and the
+#'   panel is unbalanced, \code{did} coerces to a balanced (complete-unit) panel
+#'   by dropping units missing any period, which CHANGES THE ESTIMAND; the CS
+#'   adapter warns in this case. Set TRUE to retain units with incomplete
+#'   coverage. For imputation/did2s (no such argument), composition is instead
+#'   controlled by the input sample -- see \code{\link{build_event_study_sample}}.
+#' @param balance_e,min_e,max_e Event-study aggregation controls (default NULL =
+#'   package default behavior). Forwarded to \code{did::aggte(type="dynamic")}
+#'   for the CS adapter only. \code{balance_e} balances POST-treatment exposure
+#'   (drops groups not observed through event time \code{balance_e}); \code{min_e}
+#'   / \code{max_e} trim the displayed event-time window. NOTE: \code{balance_e}
+#'   does not balance the pre-period; for a fully non-compositional event study
+#'   (and for a fair CS-vs-imputation comparison) restrict the input sample with
+#'   \code{\link{build_event_study_sample}} instead of relying on \code{balance_e}.
 #' @param ... Additional arguments passed to adapters
 #'
 #' @return Named list of standard_estimate objects, one per model
@@ -72,6 +87,10 @@ estimate_models <- function(data,
                                pretrend_test = FALSE,
                                trend_type = c("common", "cohort_trend"),
                                trend_order = 1L,
+                               allow_unbalanced_panel = FALSE,
+                               balance_e = NULL,
+                               min_e = NULL,
+                               max_e = NULL,
                                ...) {
 
   # Validate inputs
@@ -138,6 +157,10 @@ estimate_models <- function(data,
         pretrend_test = pretrend_test,
         trend_type = trend_type,
         trend_order = trend_order,
+        allow_unbalanced_panel = allow_unbalanced_panel,
+        balance_e = balance_e,
+        min_e = min_e,
+        max_e = max_e,
         ...
       )
 

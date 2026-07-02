@@ -31,6 +31,9 @@ adapter_cs <- function() {
                      pop_var = NULL,
                      base_period = "varying",
                      allow_unbalanced_panel = FALSE,
+                     balance_e = NULL,
+                     min_e = NULL,
+                     max_e = NULL,
                      est_method = "dr",  # "dr" (doubly robust), "reg" (regression), or "ipw"
                      family = NULL,  # ignored by CS, but accepted for compatibility
                      ...) {
@@ -42,6 +45,24 @@ adapter_cs <- function() {
 
     # Convert to data.table for manipulation
     data <- data.table::as.data.table(data)
+
+    # Anti-footgun: if the panel is unbalanced and the caller left
+    # allow_unbalanced_panel = FALSE, did() will silently coerce to a balanced
+    # (complete-unit) panel, dropping units missing any period and CHANGING THE
+    # ESTIMAND. Warn loudly. (CRAN-safe: default stays FALSE to match did.)
+    if (!isTRUE(allow_unbalanced_panel)) {
+      .n_per_unit <- data[, data.table::uniqueN(get(time_var)), by = c(id_var)]$V1
+      if (length(.n_per_unit) > 0 && data.table::uniqueN(.n_per_unit) > 1L) {
+        warning(
+          "staggeredpower (CS adapter): the panel is unbalanced and ",
+          "allow_unbalanced_panel = FALSE. did::att_gt() will coerce to a ",
+          "balanced (complete-unit) panel by dropping units missing any ",
+          "period, which changes the estimand. Set allow_unbalanced_panel = ",
+          "TRUE to retain units with incomplete coverage.",
+          call. = FALSE
+        )
+      }
+    }
 
     # did package requires never-treated units to be coded as 0, not NA
     # NA values are dropped as "missing data", losing control observations
@@ -106,7 +127,13 @@ adapter_cs <- function() {
     event_study_result <- NULL
     event_study_agg <- NULL
     if (event_study) {
-      event_study_agg <- did::aggte(m_csa, type = "dynamic", na.rm = TRUE)
+      # Forward event-study aggregation controls only when supplied, so default
+      # behavior is unchanged (back-compatible).
+      .agg_args <- list(m_csa, type = "dynamic", na.rm = TRUE)
+      if (!is.null(balance_e)) .agg_args$balance_e <- balance_e
+      if (!is.null(min_e))     .agg_args$min_e     <- min_e
+      if (!is.null(max_e))     .agg_args$max_e     <- max_e
+      event_study_agg <- do.call(did::aggte, .agg_args)
       event_study_result <- data.table::data.table(
         rel_time = event_study_agg$egt,
         att = event_study_agg$att.egt,
