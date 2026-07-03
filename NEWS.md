@@ -1,3 +1,17 @@
+# staggeredpower 0.2.0
+
+* `estimate_models()` now exposes `allow_unbalanced_panel` (default `FALSE`,
+  matching `did`) as a first-class argument, forwarded to the CS/etwfe adapters.
+* The CS adapter **warns** when the panel is unbalanced and
+  `allow_unbalanced_panel = FALSE`, because `did` silently coerces to a balanced
+  (complete-unit) panel in that case, changing the estimand.
+* `estimate_models()` exposes event-study aggregation controls `balance_e`,
+  `min_e`, `max_e`, forwarded to `did::aggte(type = "dynamic")` for the CS
+  adapter. Defaults (`NULL`) preserve prior behavior.
+* New exported helper `build_event_study_sample()` constructs a
+  balanced-composition event-study sample via a unit-level presence filter over
+  a displayed window, for use with any estimator (CS or imputation/did2s).
+
 # staggeredpower 0.1.0
 
 * Initial CRAN release.
