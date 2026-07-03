@@ -30,6 +30,33 @@ test_that("CS adapter warns on unbalanced panel with allow_unbalanced_panel = FA
   expect_true(any(grepl("unbalanced", msgs) & grepl("allow_unbalanced_panel", msgs)))
 })
 
+test_that("CS adapter warns on a same-length but different-coverage (incomplete-grid) panel", {
+  skip_if_not_installed("did")
+  library(data.table)
+  # 12 units, each observed EXACTLY 8 consecutive years but on staggered windows
+  # (start year varies by unit %% 5), so all per-unit period COUNTS are equal (8)
+  # yet the (id x time) grid is incomplete. The old count-equality detector would
+  # MISS this; the complete-grid test must catch it.
+  d <- data.table::rbindlist(lapply(1:12, function(u) {
+    start <- 2000L + (u %% 5L)
+    data.table(id = u, year = start:(start + 7L))
+  }))
+  cohort <- rep(c(0L, 2010L, 2013L), length.out = 12)
+  d[, g := cohort[id]]
+  d[, y := stats::rnorm(.N)]
+  # sanity: equal per-unit counts, but incomplete grid
+  expect_identical(data.table::uniqueN(d[, .N, by = id]$N), 1L)
+  expect_lt(nrow(unique(d[, .(id, year)])),
+            data.table::uniqueN(d$id) * data.table::uniqueN(d$year))
+  msgs <- character(0)
+  withCallingHandlers(
+    tryCatch(estimate_models(d, "id", "y", "year", "g", models_to_run = "cs"),
+             error = function(e) NULL),
+    warning = function(cond) { msgs <<- c(msgs, conditionMessage(cond)); invokeRestart("muffleWarning") }
+  )
+  expect_true(any(grepl("unbalanced", msgs) & grepl("allow_unbalanced_panel", msgs)))
+})
+
 test_that("allow_unbalanced_panel = TRUE changes the estimand vs the coerced FALSE run", {
   skip_if_not_installed("did")
   library(data.table)

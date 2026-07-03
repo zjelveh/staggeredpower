@@ -1,6 +1,6 @@
 Package: staggeredpower
 Title: Power Analysis for Staggered Difference-in-Differences Designs
-Version: 0.2.0
+Version: 0.2.1
 Authors@R: 
     person("Zubin", "Jelveh", email = "zjelveh@umd.edu", role = c("aut", "cre"))
 Description: Tools for conducting power analysis in staggered difference-in-differences 

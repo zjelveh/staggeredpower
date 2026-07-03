@@ -1,3 +1,11 @@
+# staggeredpower 0.2.1
+
+* The CS adapter's unbalanced-panel warning now uses a complete-grid test
+  (distinct `(id, time)` cells vs `n_ids * n_times`) instead of comparing
+  per-unit period counts. The count test missed same-length but
+  different-coverage panels (e.g. one unit observed 2000-2010 and another
+  2005-2015); the grid test matches the criterion `did` actually applies.
+
 # staggeredpower 0.2.0
 
 * `estimate_models()` now exposes `allow_unbalanced_panel` (default `FALSE`,

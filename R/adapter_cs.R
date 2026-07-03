@@ -50,9 +50,18 @@ adapter_cs <- function() {
     # allow_unbalanced_panel = FALSE, did() will silently coerce to a balanced
     # (complete-unit) panel, dropping units missing any period and CHANGING THE
     # ESTIMAND. Warn loudly. (CRAN-safe: default stays FALSE to match did.)
+    #
+    # Detect via a complete-grid test (the criterion did actually uses): the
+    # panel is balanced iff every unit x period cell is present, i.e. the number
+    # of distinct (id, time) pairs equals n_ids * n_times. A count-of-periods
+    # test would miss same-length / different-coverage panels (e.g. one unit
+    # 2000-2010 and another 2005-2015, both 11 periods); unique() on the pair
+    # also guards against duplicate rows inflating the count.
     if (!isTRUE(allow_unbalanced_panel)) {
-      .n_per_unit <- data[, data.table::uniqueN(get(time_var)), by = c(id_var)]$V1
-      if (length(.n_per_unit) > 0 && data.table::uniqueN(.n_per_unit) > 1L) {
+      .n_ids   <- data.table::uniqueN(data[[id_var]])
+      .n_times <- data.table::uniqueN(data[[time_var]])
+      .n_cells <- nrow(unique(data[, c(id_var, time_var), with = FALSE]))
+      if (.n_ids > 0L && .n_cells < .n_ids * .n_times) {
         warning(
           "staggeredpower (CS adapter): the panel is unbalanced and ",
           "allow_unbalanced_panel = FALSE. did::att_gt() will coerce to a ",
