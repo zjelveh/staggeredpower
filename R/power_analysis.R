@@ -154,7 +154,11 @@ run_power_analysis <- function(data_clean,
     outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
     trend_type = trend_type,
     trend_order = trend_order,
-    noise_spec = noise_spec
+    noise_spec = noise_spec,
+    control_group = "notyettreated",
+    est_method = est_method,
+    base_period = base_period,
+    allow_unbalanced_panel = allow_unbalanced_panel
   )
 
   # --- Track bound errors (diagnostic only, no unit dropping) ---
@@ -213,7 +217,11 @@ run_power_analysis <- function(data_clean,
         outcome_type = if (is.null(outcome_type)) "rate" else outcome_type,
         trend_type = trend_type,
         trend_order = trend_order,
-        noise_spec = noise_spec
+        noise_spec = noise_spec,
+        control_group = "notyettreated",
+        est_method = est_method,
+        base_period = base_period,
+        allow_unbalanced_panel = allow_unbalanced_panel
       )
       # Now scale the counterfactual outcomes within the simulation
       counterfactual_data = data.table::copy(pta_enforced_sim)

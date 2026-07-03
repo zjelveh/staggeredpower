@@ -30,6 +30,16 @@
 #'     \item{cs_pool}{"global" (default) or "cohort". How to pool CS innovations.}
 #'     \item{obs_model}{"deterministic" or "poisson" (default). For Poisson PTA only.}
 #'   }
+#' @param control_group Character. For method='CS' only: control group passed to the
+#'   CS estimator when harmonizing the DGP with it ("notyettreated" (default) or
+#'   "nevertreated"). Ignored by imputation/poisson methods.
+#' @param est_method Character. For method='CS' only: did estimation method
+#'   ("dr" (default), "reg", or "ipw"). Ignored by other methods.
+#' @param base_period Character. For method='CS' only: did base period
+#'   ("universal" (default) or "varying"). Ignored by other methods.
+#' @param allow_unbalanced_panel Logical. For method='CS' only: passed to
+#'   \code{did::att_gt} when deriving the harmonized control counterfactual
+#'   (default FALSE). Ignored by other methods.
 #'
 #' @return A data.frame with enforced parallel trends (includes 'counterfactual' column)
 #'
@@ -68,7 +78,11 @@ enforce_PTA <- function(df, unit, group, time, outcome,
                         outcome_type = "rate",
                         trend_type = c("common", "cohort_trend"),
                         trend_order = 1L,
-                        noise_spec = NULL) {
+                        noise_spec = NULL,
+                        control_group = "notyettreated",
+                        est_method = "dr",
+                        base_period = "universal",
+                        allow_unbalanced_panel = FALSE) {
   method <- match.arg(method)
   trend_type <- match.arg(trend_type)
   trend_order <- as.integer(trend_order)
@@ -85,8 +99,13 @@ enforce_PTA <- function(df, unit, group, time, outcome,
                            trend_type, trend_order, noise_spec)
   } else if (method == "CS") {
     # CS already has cohort-specific trends implicitly via not-yet-treated controls
-    # trend_type and trend_order are ignored for CS method
-    enforce_PTA_CS(df, unit, group, time, outcome, controls, seed, noise_spec)
+    # trend_type and trend_order are ignored for CS method. The did-estimator
+    # settings (control_group/est_method/base_period/allow_unbalanced_panel) are
+    # forwarded so the DGP is HARMONIZED with the CS estimator applied downstream.
+    enforce_PTA_CS(df, unit, group, time, outcome, controls, seed, noise_spec,
+                   control_group = control_group, est_method = est_method,
+                   base_period = base_period,
+                   allow_unbalanced_panel = allow_unbalanced_panel)
   } else if (method == "poisson") {
     enforce_PTA_poisson(df, unit, group, time, outcome, controls, seed,
                         pop_var, outcome_type, trend_type, trend_order, noise_spec)
@@ -311,8 +330,113 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
 
 
 
+# Session-level memo cache for the CS control counterfactual. The did::att_gt fit is
+# invariant across simulations, effect sizes and noise configs (it depends only on the
+# real data + estimator settings), so without memoization the power grid would repeat
+# the identical fit thousands of times. Lives in the package namespace: persists for the
+# session, and each parallel worker gets its own copy (no cross-process sharing needed).
+.sp_cs_delta_cache <- new.env(parent = emptyenv())
+
+# Clear the CS delta_control memo cache (mainly for tests / long-running sessions)
+.sp_clear_cs_cache <- function() {
+  rm(list = ls(.sp_cs_delta_cache, all.names = TRUE), envir = .sp_cs_delta_cache)
+  invisible(NULL)
+}
+
+#' Back out did's control counterfactual change per (g, t)
+#'
+#' @description
+#' Harmonizes the CS power DGP with the CS estimator. Rather than re-deriving the
+#' Callaway--Sant'Anna control counterfactual with independent hand-rolled code
+#' (which only matches \code{did::att_gt} on complete-grid / balanced panels), this
+#' reads did's OWN control-side straight off a single \code{att_gt} fit on the real
+#' data. For each post cell (g, t):
+#' \deqn{\Delta_{control}(g,t) = [\text{treated change}] - ATT(g,t)}
+#' Because \eqn{ATT(g,t) \equiv [\text{treated change}] - \Delta_{control}(g,t)} by
+#' did's definition, the realized treated outcome cancels and \eqn{\Delta_{control}}
+#' is a function of the CONTROL outcomes only. Building the null counterfactual as
+#' \eqn{Y_{i,g-1} + \Delta_{control}(g,t)} then makes the CS estimator recover ~0 on
+#' the null. Exactness requires the DGP and the estimator to use the SAME
+#' \code{allow_unbalanced_panel} setting: recovery is machine-zero on balanced panels,
+#' and near-zero on ragged panels run with \code{allow_unbalanced_panel = TRUE} (a
+#' small residual remains from cells did handles unit-by-unit). With the default
+#' \code{allow_unbalanced_panel = FALSE}, did coerces a ragged panel to a balanced
+#' subset, so the back-out (which uses the full present-at-both treated set) will not
+#' cancel exactly -- pass \code{TRUE} for ragged panels, as the estimator should.
+#'
+#' @return data.table with columns g, t, delta_control (keyed on g, t).
+#' @noRd
+.cs_delta_control <- function(df, unit_col, group_col, time_col, outcome_col,
+                              controls, control_group, est_method, base_period,
+                              allow_unbalanced_panel) {
+  if (!requireNamespace("did", quietly = TRUE)) {
+    stop("Package 'did' is required for the CS power DGP (pta_type = 'cs'). ",
+         "Install with: install.packages('did')", call. = FALSE)
+  }
+
+  # Memoize on the VALUES that determine the fit (plain vectors, not the data.table
+  # object, whose internal self-reference would otherwise defeat the cache). Returns a
+  # fresh copy so callers may re-key/mutate without corrupting the cached result.
+  key <- digest::digest(list(
+    unit = df[[unit_col]], grp = df[[group_col]], tim = df[[time_col]], out = df[[outcome_col]],
+    ctrl = if (!is.null(controls) && length(controls) > 0) {
+      lapply(controls, function(cc) df[[cc]])
+    } else NULL,
+    meta = list(unit_col, group_col, time_col, outcome_col, controls,
+                control_group, est_method, base_period, allow_unbalanced_panel)
+  ))
+  cached <- .sp_cs_delta_cache[[key]]
+  if (!is.null(cached)) return(data.table::copy(cached))
+
+  d <- data.table::as.data.table(df)
+  # did requires never-treated units coded as 0 (not NA)
+  if (any(is.na(d[[group_col]]))) d[is.na(get(group_col)), (group_col) := 0]
+
+  xformla <- if (!is.null(controls) && length(controls) > 0) {
+    stats::as.formula(paste0("~ ", paste(controls, collapse = " + ")))
+  } else {
+    stats::as.formula("~ 1")
+  }
+
+  m <- did::att_gt(
+    yname = outcome_col, tname = time_col, idname = unit_col, gname = group_col,
+    data = as.data.frame(d), xformla = xformla, control_group = control_group,
+    anticipation = 0, est_method = est_method, base_period = base_period,
+    allow_unbalanced_panel = allow_unbalanced_panel, clustervars = unit_col,
+    print_details = FALSE
+  )
+
+  gt <- data.table::data.table(g = m$group, t = m$t, att = m$att)
+  gt <- gt[g > 0 & t >= g]                 # post-treatment cells only
+  gt <- unique(gt, by = c("g", "t"))       # one ATT per (g, t)
+
+  data.table::setkeyv(d, c(unit_col, time_col))
+  deltas <- numeric(nrow(gt))
+  for (i in seq_len(nrow(gt))) {
+    gv <- gt$g[i]; tv <- gt$t[i]; base <- gv - 1
+    # base-R filter: avoid NSE collision if group_col is literally named "g"
+    tr <- unique(d[[unit_col]][d[[group_col]] == gv & !is.na(d[[group_col]])])
+    yb <- d[list(tr, base)][[outcome_col]]
+    yt <- d[list(tr, tv)][[outcome_col]]
+    ok <- !is.na(yb) & !is.na(yt)
+    # treated_change - ATT(g,t): the treated change cancels the treated part inside
+    # ATT, leaving did's control counterfactual change (control outcomes only).
+    deltas[i] <- if (any(ok)) mean(yt[ok] - yb[ok]) - gt$att[i] else NA_real_
+  }
+  gt[, delta_control := deltas]
+  data.table::setkeyv(gt, c("g", "t"))
+  result <- gt[, .(g, t, delta_control)]
+  .sp_cs_delta_cache[[key]] <- data.table::copy(result)   # store pristine copy
+  result
+}
+
+
 enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed = NULL,
-                            noise_spec = NULL) {
+                            noise_spec = NULL,
+                            control_group = "notyettreated",
+                            est_method = "dr",
+                            base_period = "universal",
+                            allow_unbalanced_panel = FALSE) {
   noise_spec <- normalize_noise_spec(noise_spec)
   if (!is.null(seed)) set.seed(seed)
 
@@ -327,140 +451,154 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   use_count_obs <- noise_spec$obs_model %in% c("poisson", "binomial")
 
   # Get key parameters
-  groups <- sort(unique(df[[group_col]]))
+  groups <- sort(unique(df[[group_col]]))   # NA (never-treated) dropped: not a cohort
   max_year <- max(df[[time_col]])
 
   # Make a copy to store counterfactuals
   df_new <- data.table::as.data.table(df)
   df_new[, counterfactual := get(outcome_col)]
+  if (use_count_obs) df_new[, cf_mean_rate := NA_real_]
 
   # Calculate rel_pass if not present
   if (!"rel_pass" %in% names(df_new)) {
     df_new[, rel_pass := get(time_col) - get(group_col)]
   }
 
-  # --- Pre-compute calibration for AR(1)/AR(1)+common engines ---
-  # For ar1/ar1_common, we need to calibrate from control residuals first,
-  # then pre-generate shock paths for all treated units
-  shock_lookup <- NULL
-  if (!use_count_obs) {
-    if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
-      # Calibrate noise from control long-diff residuals
-      noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
-                                         controls, noise_spec)
-
-      # Build treated_units_by_cohort and max_rp_by_cohort
-      treated_units_by_cohort <- list()
-      max_rp_by_cohort <- list()
-      for (g in groups) {
-        g_char <- as.character(g)
-        treated_units_by_cohort[[g_char]] <- unique(df[get(group_col) == g][[unit_col]])
-        max_rp_by_cohort[[g_char]] <- max(df_new[get(group_col) == g]$rel_pass, na.rm = TRUE)
-      }
-
-      # Pre-generate all shock paths
-      shock_dt <- draw_noise_cs(noise_calib, treated_units_by_cohort, max_rp_by_cohort)
-      # Create lookup keyed by (unit, cohort, rp)
-      data.table::setkeyv(shock_dt, c("unit", "cohort", "rp"))
-      shock_lookup <- shock_dt
-
-    } else if (engine == "iid") {
-      # For iid, we still need per-cell resid_sd — calibrate to get those
-      noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
-                                         controls, noise_spec)
-    }
+  # --- HARMONIZED control counterfactual: read did's OWN control-side. ---
+  # This replaces the legacy hand-rolled control long-difference regression, which
+  # only matched did::att_gt on balanced panels and left a non-zero CS/CS null bias
+  # on ragged ones. The DGP now inherits exactly whatever control group + estimand
+  # the estimator uses (incl. late-adopter / not-yet-treated controls), by design.
+  delta_dt <- .cs_delta_control(df_new, unit_col, group_col, time_col, outcome_col,
+                                controls, control_group, est_method, base_period,
+                                allow_unbalanced_panel)
+  data.table::setkeyv(delta_dt, c("g", "t"))
+  # Per-cohort fallback (mean estimable delta) for treated post cells that did does
+  # NOT estimate (structurally: late periods / last cohort, or ragged coverage).
+  # Such cells are INERT for the estimator's ATT (it can't estimate them either), so
+  # the fallback only keeps the simulated panel complete (no NA outcomes downstream).
+  cohort_fb <- delta_dt[!is.na(delta_control), .(fb = mean(delta_control)), by = g]
+  n_estimable <- nrow(delta_dt[!is.na(delta_control)])
+  global_fb <- if (n_estimable > 0) {
+    mean(delta_dt$delta_control, na.rm = TRUE)   # cohort has NO estimable cell at all
+  } else NA_real_
+  # No usable (g,t) cell at all: no counterfactual can be built, so the returned
+  # outcomes would silently equal the observed data (invalid for a power DGP). Warn
+  # loudly rather than fail silently. Usually means no valid control group exists
+  # (e.g. a single treated cohort, or no not-yet-treated / never-treated units).
+  if (n_estimable == 0) {
+    warning("staggeredpower (CS DGP): did::att_gt estimated no usable (g, t) cells for ",
+            "this panel; no counterfactual could be built and the returned outcomes equal ",
+            "the observed data. Downstream power/rejection numbers will be invalid.",
+            call. = FALSE)
   }
 
-  # --- Main (g, rp) loop ---
-  for (g in groups) {
-    max_rel_pass <- max(df_new[get(group_col) == g]$rel_pass, na.rm = TRUE)
+  # NOTE: group/time filters below use base-R column extraction (df[[group_col]])
+  # rather than data.table NSE (get(group_col) == gv). The loop scalar must never be
+  # resolvable as a column: if the caller's group column is literally named "g", a
+  # `get(group_col) == g` filter silently becomes `g_col == g_col` (all TRUE).
+
+  # --- Pre-compute calibration for AR(1) engines (unchanged; independent of mean) ---
+  shock_lookup <- NULL
+  if (!use_count_obs && engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
+    noise_calib <- calibrate_noise_cs(df, unit_col, group_col, time_col, outcome_col,
+                                       controls, noise_spec)
+    treated_units_by_cohort <- list()
+    max_rp_by_cohort <- list()
+    for (gv in groups) {
+      g_char <- as.character(gv)
+      in_g <- df[[group_col]] == gv & !is.na(df[[group_col]])   # NA & FALSE -> FALSE (no NA leak)
+      treated_units_by_cohort[[g_char]] <- unique(df[[unit_col]][in_g])
+      max_rp_by_cohort[[g_char]] <- max(df_new$rel_pass[df_new[[group_col]] == gv], na.rm = TRUE)
+    }
+    shock_dt <- draw_noise_cs(noise_calib, treated_units_by_cohort, max_rp_by_cohort)
+    data.table::setkeyv(shock_dt, c("unit", "cohort", "rp"))
+    shock_lookup <- shock_dt
+  }
+
+  # --- Main (g, rp) loop: mu_hat(i,t) = Y_{i,g-1} + Delta_control(g,t) ---
+  for (gv in groups) {
+    rp_vals <- df_new$rel_pass[df_new[[group_col]] == gv]
+    max_rel_pass <- if (all(is.na(rp_vals))) -Inf else max(rp_vals, na.rm = TRUE)
+    # Skip cohorts with NO observed post-period (max rel_pass < 0): `0:max_rel_pass`
+    # would otherwise descend into negative rp (curr_time = gv-1 = pre-period, which
+    # would overwrite pre-treatment outcomes) or, at -Inf, error on `0:-Inf`.
+    if (!is.finite(max_rel_pass) || max_rel_pass < 0) next
 
     for (rp in 0:max_rel_pass) {
-      curr_time <- g + rp
+      curr_time <- gv + rp
       if (curr_time > max_year) next
-      pre_time <- g - 1
+      pre_time <- gv - 1
 
-      # Control pool: not-yet-treated at curr_time OR never-treated
-      control_data <- df[(get(group_col) > curr_time & get(group_col) <= max_year) | is.na(get(group_col))]
-
-      # Control long-diffs
-      control_pre <- control_data[get(time_col) == pre_time]
-      control_post <- control_data[get(time_col) == curr_time]
-
-      control_changes <- merge(control_pre, control_post,
-                                by = c(unit_col),
-                                suffixes = c("_pre", "_post"))
-
-      control_changes[, delta_y := get(paste0(outcome_col, "_post")) -
-                        get(paste0(outcome_col, "_pre"))]
-
-      # Build regression matrix
-      if (!is.null(controls) && length(controls) > 0) {
-        X_control <- as.matrix(cbind(1, control_changes[, paste0(controls, "_pre"), with = FALSE]))
+      g_cur <- gv; t_cur <- curr_time
+      dc_row <- delta_dt[g == g_cur & t == t_cur]
+      if (nrow(dc_row) > 0 && !is.na(dc_row$delta_control[1])) {
+        dc <- dc_row$delta_control[1]              # did's own control-side (exact)
       } else {
-        X_control <- as.matrix(rep(1, nrow(control_changes)))
+        fb <- cohort_fb$fb[cohort_fb$g == g_cur]   # inert fallback for unestimated cells
+        if (length(fb) == 0 || is.na(fb)) fb <- global_fb   # cohort has no cell at all
+        if (length(fb) == 0 || is.na(fb)) next     # did estimated nothing on this panel
+        dc <- fb
       }
 
-      if (length(control_changes$delta_y) > 0) {
-        # Fit regression
-        reg_model <- stats::lm.fit(x = X_control, y = control_changes$delta_y)
-        df_resid <- length(control_changes$delta_y) - ncol(X_control)
+      # Treated units in cohort gv present at BOTH the base year (gv-1) and curr_time
+      in_cohort <- df_new[[group_col]] == gv & !is.na(df_new[[group_col]])
+      pre <- df_new[in_cohort & df_new[[time_col]] == pre_time,
+                    .(cf_u = get(unit_col), cf_anchor = get(outcome_col))]
+      post_units <- df_new[[unit_col]][in_cohort & df_new[[time_col]] == curr_time]
+      pre <- pre[cf_u %in% post_units & !is.na(cf_anchor)]
+      if (nrow(pre) == 0) next
 
-        # Per-cell residual SD (used for iid engine)
-        if (df_resid <= 0) {
-          resid_sd <- sqrt(sum(reg_model$residuals^2) / 1)
-        } else {
-          resid_sd <- sqrt(sum(reg_model$residuals^2) / df_resid)
-        }
+      mu_hat <- pre$cf_anchor + dc   # common control shift added to each unit's own anchor
 
-        # Get treated units at pre-treatment period
-        treated_pre <- df[get(group_col) == g & get(time_col) == pre_time]
-
-        # Build regression matrix for treated
-        if (!is.null(controls) && length(controls) > 0) {
-          X_treated <- as.matrix(cbind(1, treated_pre[, ..controls]))
-        } else {
-          X_treated <- as.matrix(rep(1, nrow(treated_pre)))
-        }
-
-        # Predict deterministic changes
-        predicted_changes <- as.vector(X_treated %*% reg_model$coefficients)
-
-        # Deterministic mu_hat
-        mu_hat <- treated_pre[[outcome_col]] + predicted_changes
-
-        # Apply noise based on engine and obs_model
-        if (use_count_obs) {
-          # Count observation model: store deterministic mean rate
-          counterfactuals <- mu_hat
-          df_new[get(group_col) == g & get(time_col) == curr_time,
-                 cf_mean_rate := counterfactuals]
-        } else if (engine == "none") {
-          counterfactuals <- mu_hat
-        } else if (engine == "iid") {
-          counterfactuals <- mu_hat + stats::rnorm(length(mu_hat), mean = 0, sd = resid_sd)
-        } else {
-          # ar1 or ar1_common/ar1_anchored: look up pre-computed cumulated shocks
-          treated_units <- treated_pre[[unit_col]]
-          eps_vals <- numeric(length(treated_units))
-          for (idx in seq_along(treated_units)) {
-            uid <- treated_units[idx]
-            match_row <- shock_lookup[list(uid, g, rp)]
-            if (nrow(match_row) > 0 && !is.na(match_row$eps_ld[1])) {
-              eps_vals[idx] <- match_row$eps_ld[1]
-            }
-          }
-          counterfactuals <- mu_hat + eps_vals
-        }
-
-        # Update counterfactual values
-        df_new[get(group_col) == g & get(time_col) == curr_time,
-               counterfactual := counterfactuals]
+      # Apply noise based on engine and obs_model
+      if (use_count_obs || engine == "none") {
+        vals <- mu_hat
+      } else if (engine %in% c("ar1", "ar1_common", "ar1_anchored")) {
+        eps_vals <- vapply(pre$cf_u, function(uid) {
+          mr <- shock_lookup[list(uid, gv, rp)]
+          if (nrow(mr) > 0 && !is.na(mr$eps_ld[1])) mr$eps_ld[1] else 0
+        }, numeric(1))
+        vals <- mu_hat + eps_vals
+      } else if (engine == "iid") {
+        rsd <- .cs_control_resid_sd(df, unit_col, group_col, time_col, outcome_col,
+                                    controls, curr_time, pre_time, max_year)
+        vals <- mu_hat + stats::rnorm(length(mu_hat), 0, rsd)
+      } else {
+        vals <- mu_hat
       }
+
+      # Per-unit keyed assignment (robust to ragged treated coverage)
+      assign_dt <- data.table::data.table(cf_u = pre$cf_u, cf_tt = curr_time, cf_val = vals)
+      on_spec <- stats::setNames(c("cf_u", "cf_tt"), c(unit_col, time_col))
+      df_new[assign_dt, on = on_spec, counterfactual := i.cf_val]
+      if (use_count_obs) df_new[assign_dt, on = on_spec, cf_mean_rate := i.cf_val]
     }
   }
 
   return(df_new)
+}
+
+
+#' Residual SD of control long-differences for the legacy iid noise engine
+#' @noRd
+.cs_control_resid_sd <- function(df, unit_col, group_col, time_col, outcome_col,
+                                 controls, curr_time, pre_time, max_year) {
+  control_data <- df[(get(group_col) > curr_time & get(group_col) <= max_year) |
+                       is.na(get(group_col))]
+  cp <- control_data[get(time_col) == pre_time]
+  cq <- control_data[get(time_col) == curr_time]
+  cc <- merge(cp, cq, by = c(unit_col), suffixes = c("_pre", "_post"))
+  if (nrow(cc) == 0) return(0)
+  dy <- cc[[paste0(outcome_col, "_post")]] - cc[[paste0(outcome_col, "_pre")]]
+  if (!is.null(controls) && length(controls) > 0) {
+    X <- as.matrix(cbind(1, cc[, paste0(controls, "_pre"), with = FALSE]))
+  } else {
+    X <- as.matrix(rep(1, length(dy)))
+  }
+  fit <- stats::lm.fit(x = X, y = dy)
+  dfree <- length(dy) - ncol(X)
+  sqrt(sum(fit$residuals^2) / max(dfree, 1))
 }
 
 

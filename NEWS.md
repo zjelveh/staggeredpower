@@ -1,3 +1,38 @@
+# staggeredpower 0.2.2
+
+* **CS power DGP harmonized with the CS estimator.** `enforce_PTA_CS()` previously
+  re-derived the Callaway--Sant'Anna control counterfactual with a hand-rolled
+  long-difference regression that only matched `did::att_gt()` on complete-grid
+  (balanced) panels. On unbalanced panels the two diverged, leaving a non-zero
+  CS/CS "null bias" in the power analysis (the estimator did not recover ~0 when
+  applied to a no-effect DGP). The DGP now reads did's own control-side straight
+  off a single `att_gt()` fit (`delta_control(g,t) = treated_change - ATT(g,t)`,
+  in which the realized treated outcome cancels), so the DGP inherits exactly the
+  estimator's control group and estimand. Null recovery is now ~0 on balanced
+  panels (machine precision) and near-zero on ragged ones. Adds `control_group`,
+  `est_method`, `base_period`, and `allow_unbalanced_panel` arguments to
+  `enforce_PTA()` (CS method) so the DGP is configured identically to the estimator.
+* Fixed a latent bug in `enforce_PTA_CS()`: group/time filters used data.table NSE
+  (`get(group_col) == g`), which silently matched all rows when the caller's group
+  column was literally named `g`. Filters now use base-R column extraction.
+* Fixed a length-mismatch crash in `enforce_PTA_CS()` on panels where a treated
+  cohort's membership differed between the base year and a post period; the
+  counterfactual is now assigned by a per-unit keyed join.
+* Fixed `enforce_PTA_CS()` for a cohort with no observed post-period (max relative
+  time < 0, e.g. a unit that adopts just after the last observed year): the
+  `0:max_rel_pass` loop previously descended into negative relative time and
+  overwrote pre-treatment outcomes (or errored on `0:-Inf`). Such cohorts are now
+  skipped.
+* `enforce_PTA_CS()` now warns loudly when `did::att_gt()` estimates no usable
+  (g, t) cells (e.g. a single treated cohort with no controls) instead of silently
+  returning the observed outcomes as the "counterfactual."
+* Guarded a base-R group filter in the CS ar1 noise path against never-treated
+  (NA-group) rows leaking `NA` unit ids into the per-cohort shock lookup.
+* The CS control-counterfactual `did::att_gt()` fit is now memoized (keyed on the
+  data values + estimator settings), since it is invariant across simulations,
+  effect sizes and noise configurations. This avoids repeating the identical fit
+  tens of thousands of times over a power grid. Adds `digest` to Imports.
+
 # staggeredpower 0.2.1
 
 * The CS adapter's unbalanced-panel warning now uses a complete-grid test

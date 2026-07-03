@@ -17,7 +17,11 @@ enforce_PTA(
   outcome_type = "rate",
   trend_type = c("common", "cohort_trend"),
   trend_order = 1L,
-  noise_spec = NULL
+  noise_spec = NULL,
+  control_group = "notyettreated",
+  est_method = "dr",
+  base_period = "universal",
+  allow_unbalanced_panel = FALSE
 )
 }
 \arguments{
@@ -58,6 +62,20 @@ as legacy behavior). See \code{\link{normalize_noise_spec}} for options:
 \item{cs_pool}{"global" (default) or "cohort". How to pool CS innovations.}
 \item{obs_model}{"deterministic" or "poisson" (default). For Poisson PTA only.}
 }}
+
+\item{control_group}{Character. For method='CS' only: control group passed to the
+CS estimator when harmonizing the DGP with it ("notyettreated" (default) or
+"nevertreated"). Ignored by imputation/poisson methods.}
+
+\item{est_method}{Character. For method='CS' only: did estimation method
+("dr" (default), "reg", or "ipw"). Ignored by other methods.}
+
+\item{base_period}{Character. For method='CS' only: did base period
+("universal" (default) or "varying"). Ignored by other methods.}
+
+\item{allow_unbalanced_panel}{Logical. For method='CS' only: passed to
+\code{did::att_gt} when deriving the harmonized control counterfactual
+(default FALSE). Ignored by other methods.}
 }
 \value{
 A data.frame with enforced parallel trends (includes 'counterfactual' column)
