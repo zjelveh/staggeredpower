@@ -108,6 +108,35 @@ adapter_imputation <- function() {
     result_att <- do.call(didimputation::did_imputation,
                           c(imp_args, list(horizon = NULL, pretrends = NULL)))
 
+    # Optional state-cluster nonparametric bootstrap SE (small-N inference: the didimputation
+    # analytic cluster-robust SE is ~anti-conservative in few-treated/few-cluster panels). Each
+    # rep resamples clusters and re-runs did_imputation, so the untreated-surface estimation
+    # uncertainty is carried through. Gated OFF by default via option 'staggeredpower.imp_boot'
+    # (= number of bootstrap reps; 0 = analytic SE, unchanged behavior).
+    .imp_boot_se <- NA_real_
+    .imp_boot_B  <- getOption("staggeredpower.imp_boot", 0L)
+    if (is.numeric(.imp_boot_B) && .imp_boot_B > 0) {
+      .dtb  <- data.table::as.data.table(data)
+      .cids <- unique(.dtb[[cluster_var]])
+      .ests <- numeric(.imp_boot_B)
+      for (.b in seq_len(.imp_boot_B)) {
+        .samp  <- sample(.cids, length(.cids), replace = TRUE)
+        .parts <- lapply(seq_along(.samp), function(i) {
+          xx <- data.table::copy(.dtb[get(cluster_var) == .samp[i]]); xx[[id_var]] <- i * 100000L; xx
+        })
+        .bd <- data.table::rbindlist(.parts)
+        .mb <- tryCatch(do.call(didimputation::did_imputation,
+                 c(list(data = as.data.frame(.bd), yname = working_outcome, gname = group_var,
+                        tname = time_var, idname = id_var, first_stage = first_stage_formula,
+                        wname = weightsname, cluster_var = id_var),
+                   list(horizon = NULL, pretrends = NULL))), error = function(e) NULL)
+        .ests[.b] <- if (is.null(.mb)) NA_real_ else .mb$estimate[1]
+      }
+      .ests <- .ests[is.finite(.ests)]
+      if (length(.ests) >= 10) .imp_boot_se <- stats::sd(.ests)
+    }
+    .se_out <- if (is.finite(.imp_boot_se)) .imp_boot_se else result_att$std.error[1]
+
     # Event study: second call with horizon = TRUE
     event_study_result <- NULL
     if (event_study) {
@@ -138,7 +167,7 @@ adapter_imputation <- function() {
 
     list(
       estimate = result_att$estimate[1],
-      std.error = result_att$std.error[1],
+      std.error = .se_out,
       event_study = event_study_result,
       raw = result_att,
       metadata = list(

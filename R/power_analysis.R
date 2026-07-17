@@ -243,7 +243,20 @@ run_power_analysis <- function(data_clean,
         counterfactual_data[, .eff := data.table::fifelse(get(treat_ind_var) == 1, percent_effect, 1)]
         sig <- if (!is.null(noise_spec$latent_sigma)) noise_spec$latent_sigma else
                latent_sigma_default(counterfactual_data, outcome, pop_var, treat_ind_var)
-        counterfactual_data[, .lat := exp(stats::rnorm(.N, 0, sig) - sig^2 / 2)]  # mean-preserving
+        rho_lat <- if (!is.null(noise_spec$latent_rho)) noise_spec$latent_rho else 0
+        if (rho_lat == 0) {
+          counterfactual_data[, .lat := exp(stats::rnorm(.N, 0, sig) - sig^2 / 2)]  # iid, mean-preserving
+        } else {
+          # AR(1) latent log-shock per unit at FIXED marginal SD = sig (adds serial dependence,
+          # not magnitude): stationary var = sig^2; innovation var = sig^2 (1 - rho^2).
+          data.table::setorderv(counterfactual_data, c(unit_var, time_var))
+          counterfactual_data[, .lat := {
+            n <- .N; v <- numeric(n); v[1] <- stats::rnorm(1, 0, sig)
+            if (n > 1) { e <- stats::rnorm(n, 0, sig * sqrt(1 - rho_lat^2))
+                        for (j in 2:n) v[j] <- rho_lat * v[j - 1] + e[j] }
+            exp(v - sig^2 / 2)
+          }, by = c(unit_var)]
+        }
         if (use_count_obs) {
           counterfactual_data[, .lambda := pmax(.mean_rate, 0) * .eff * get(pop_var) / RATE_SCALE * .lat]
           counterfactual_data[, y_cf := stats::rpois(.N, pmax(.lambda, 1e-8)) / get(pop_var) * RATE_SCALE]
