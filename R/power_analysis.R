@@ -229,7 +229,35 @@ run_power_analysis <- function(data_clean,
 
       RATE_SCALE <- 100000
 
-      if (use_count_obs && "cf_mean_rate" %in% names(counterfactual_data)) {
+      if (isTRUE(noise_spec$reroll_controls) &&
+          (use_count_obs || use_binomial_obs) && "cf_mean_rate" %in% names(counterfactual_data)) {
+        # --- RE-ROLL CONTROLS: harmonized treated mean (cf_mean_rate) + modular
+        #     control-mean surface, then bounded noise (mean-preserving latent lognormal
+        #     x count/share draw) on EVERY cell so control-side sampling variance enters
+        #     the estimator. Opt-in via noise_spec$reroll_controls. ---
+        cm_fn  <- get_control_mean_surface(noise_spec$control_mean)
+        mu_all <- cm_fn(counterfactual_data, unit_var, time_var, outcome, treat_ind_var, pop_var)
+        .is_ctrl <- counterfactual_data[[treat_ind_var]] != 1
+        counterfactual_data[, .mean_rate := cf_mean_rate]
+        counterfactual_data[.is_ctrl, .mean_rate := mu_all[.is_ctrl]]
+        counterfactual_data[, .eff := data.table::fifelse(get(treat_ind_var) == 1, percent_effect, 1)]
+        sig <- if (!is.null(noise_spec$latent_sigma)) noise_spec$latent_sigma else
+               latent_sigma_default(counterfactual_data, outcome, pop_var, treat_ind_var)
+        counterfactual_data[, .lat := exp(stats::rnorm(.N, 0, sig) - sig^2 / 2)]  # mean-preserving
+        if (use_count_obs) {
+          counterfactual_data[, .lambda := pmax(.mean_rate, 0) * .eff * get(pop_var) / RATE_SCALE * .lat]
+          counterfactual_data[, y_cf := stats::rpois(.N, pmax(.lambda, 1e-8)) / get(pop_var) * RATE_SCALE]
+        } else {
+          counterfactual_data[, .n_total := as.integer(round(get(total_count_var)))]
+          counterfactual_data[, .p_eff := pmin(pmax(.mean_rate, 0) * .eff * .lat, 1)]
+          counterfactual_data[, y_cf := data.table::fifelse(.n_total > 0L,
+              stats::rbinom(.N, size = pmax(.n_total, 1L), prob = .p_eff) / .n_total, 0)]
+        }
+        drop_cols <- intersect(c(".mean_rate", ".eff", ".lat", ".lambda", ".n_total", ".p_eff"),
+                               names(counterfactual_data))
+        if (length(drop_cols)) counterfactual_data[, (drop_cols) := NULL]
+
+      } else if (use_count_obs && "cf_mean_rate" %in% names(counterfactual_data)) {
         # --- Count observation model: Poisson draw with pre-draw effect ---
         counterfactual_data[get(treat_ind_var) == 1,
           .lambda := pmax(cf_mean_rate, 0) * get(pop_var) / RATE_SCALE * percent_effect]
