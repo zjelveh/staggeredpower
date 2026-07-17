@@ -121,8 +121,13 @@ adapter_imputation <- function() {
       .ests <- numeric(.imp_boot_B)
       for (.b in seq_len(.imp_boot_B)) {
         .samp  <- sample(.cids, length(.cids), replace = TRUE)
+        # Relabel each resampled cluster with a small, distinct sequential id. NOTE: use small
+        # ids (i), NOT i * 100000L -- large integer ids destabilize didimputation's first stage
+        # (LU/Cholesky failure): empirically 0/30 resamples converge at i*1e5 vs 30/30 at i*1e3 or
+        # sequential i. The old i*100000L silently returned NA on every rep, so .imp_boot_se stayed
+        # NA and the code fell back to the analytic SE (the bootstrap never actually ran).
         .parts <- lapply(seq_along(.samp), function(i) {
-          xx <- data.table::copy(.dtb[get(cluster_var) == .samp[i]]); xx[[id_var]] <- i * 100000L; xx
+          xx <- data.table::copy(.dtb[get(cluster_var) == .samp[i]]); xx[[id_var]] <- i; xx
         })
         .bd <- data.table::rbindlist(.parts)
         .mb <- tryCatch(do.call(didimputation::did_imputation,
