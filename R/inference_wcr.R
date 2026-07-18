@@ -54,6 +54,8 @@ wcr_test <- function(data, outcome, unit_var, time_var, group_var, treat_ind_var
     stop("wcr_test requires the 'fixest' package for the restricted null fit.")
   d <- data.table::as.data.table(data)
   if (is.null(cluster_var)) cluster_var <- unit_var
+  # never-treated coded as NA -> 0, matching the estimators' expectation
+  if (any(is.na(d[[group_var]]))) d[is.na(get(group_var)), (group_var) := 0]
 
   # estimator -> c(estimate, analytic se) on outcome column `yname`
   fit_est <- function(dd, yname) {

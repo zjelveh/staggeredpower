@@ -66,7 +66,11 @@ run_power_analysis <- function(data_clean,
                                design_resample = "none",
                                allow_unbalanced_panel = FALSE,
                                est_method = "dr",
-                               base_period = "varying") {
+                               base_period = "varying",
+                               wcr_models = NULL,
+                               wcr_B = 999L,
+                               wcr_weights = c("rademacher", "webb")) {
+  wcr_weights <- match.arg(wcr_weights)
 
   # Normalize and validate noise spec
   noise_spec <- normalize_noise_spec(noise_spec)
@@ -337,6 +341,21 @@ run_power_analysis <- function(data_clean,
           att = results[[model]]$agg$att
           se = results[[model]]$agg$se
 
+          # Modular WCR-t inference: after the estimator runs, apply the wild cluster
+          # bootstrap to any model the user flagged via wcr_models. Cheap for imputation;
+          # expensive for CS (att_gt x B) -- opt in per estimator.
+          wcr_cval <- NA_real_; wcr_reject <- NA_integer_; wcr_pval <- NA_real_
+          if (!is.null(wcr_models) && model %in% wcr_models) {
+            .wr <- tryCatch(wcr_test(
+                     data = model_data, outcome = "y_cf", unit_var = unit_var,
+                     time_var = time_var, group_var = group_var, treat_ind_var = treat_ind_var,
+                     estimator = model, cluster_var = unit_var, B = wcr_B, weights = wcr_weights,
+                     est_method = est_method, base_period = base_period,
+                     allow_unbalanced_panel = allow_unbalanced_panel),
+                   error = function(e) NULL)
+            if (!is.null(.wr)) { wcr_cval <- .wr$wcr_cval; wcr_reject <- .wr$reject; wcr_pval <- .wr$wcr_pval }
+          }
+
           # Get units that are ever treated
           treated_units <- unique(model_data[get(treat_ind_var) == 1][[unit_var]])
 
@@ -362,6 +381,9 @@ run_power_analysis <- function(data_clean,
             controls = ifelse(is.null(controls), 'no_controls', paste0(controls, collapse='*')),
             att = att,
             se = se,
+            wcr_cval = wcr_cval,
+            wcr_reject = wcr_reject,
+            wcr_pval = wcr_pval,
             n_bound_errors = n_bound_errors,
             n_violating_units = length(violating_units),
             y0_bar_csa = y0_bar_csa,

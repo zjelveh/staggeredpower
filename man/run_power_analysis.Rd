@@ -32,7 +32,10 @@ run_power_analysis(
   design_resample = "none",
   allow_unbalanced_panel = FALSE,
   est_method = "dr",
-  base_period = "varying"
+  base_period = "varying",
+  wcr_models = NULL,
+  wcr_B = 999L,
+  wcr_weights = c("rademacher", "webb")
 )
 }
 \arguments{
