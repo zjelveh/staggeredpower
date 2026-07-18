@@ -44,14 +44,23 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
 
   d <- data.table::as.data.table(data)
   unt <- d[[treat_ind_var]] != 1
-  fml <- stats::as.formula(sprintf("`%s` ~ factor(`%s`) + factor(`%s`)", outcome, unit_var, time_var))
-  fit <- stats::lm(fml, data = d[unt])
+  # Restrict to units/years present among the untreated cells so the additive FE
+  # prediction is defined for every remaining cell. Only-treated units (no untreated
+  # coverage -- e.g. NIBRS states whose reporting starts after adoption) carry no
+  # information about the untreated dispersion and would break predict() on unseen levels.
+  .su <- unique(d[unt][[unit_var]]); .st <- unique(d[unt][[time_var]])
+  d <- d[get(unit_var) %in% .su & get(time_var) %in% .st]
+  unt <- d[[treat_ind_var]] != 1
+  if (!requireNamespace("fixest", quietly = TRUE)) stop("calibrate_noise requires the 'fixest' package.")
+  fml <- stats::as.formula(sprintf("`%s` ~ 1 | `%s` + `%s`", outcome, unit_var, time_var))
+  fit <- fixest::feols(fml, data = d[unt], notes = FALSE)
   mu <- as.numeric(stats::predict(fit, newdata = d))
   mu <- if (family == "share") pmin(pmax(mu, 1e-4), 1 - 1e-4) else pmax(mu, 0)
   d[, `:=`(.mu = mu, .expo = as.numeric(get(expo_var)), .u = get(unit_var), .t = get(time_var))]
 
   # --- real per-unit residual SD (the target) + per-unit A/B moments + rho ---
   un <- d[unt, .(.u, .t, .mu, .expo, r = get(outcome) - .mu)]
+  un <- un[is.finite(r) & is.finite(.mu) & is.finite(.expo) & .expo > 0]   # drop feols-singleton NAs
   hs <- un[, .(sd = stats::sd(r), n = .N,
                A = if (family == "rate") mean(.mu * rate_scale / .expo) else mean(.mu * (1 - .mu) / .expo),
                B = if (family == "rate") mean(.mu^2)                    else mean((.mu * (1 - .mu))^2)),
@@ -85,9 +94,9 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
         bb[, ys := stats::rbinom(.N, size = pmax(round(.expo), 1L),
               prob = stats::plogis(stats::qlogis(.mu) + eta)) / pmax(round(.expo), 1L)]
       }
-      f <- stats::lm(ys ~ factor(.u) + factor(.t), data = bb[treat != 1])
-      rr <- bb[treat != 1]; rr[, rr := ys - as.numeric(stats::predict(f))]
-      hh <- rr[, .(sd = stats::sd(rr), nn = .N), by = .u][nn >= min_periods & sd > 0]
+      f <- fixest::feols(stats::as.formula("ys ~ 1 | `.u` + `.t`"), data = bb[treat != 1], notes = FALSE)
+      rr <- bb[treat != 1]; rr[, rr := ys - as.numeric(stats::predict(f, newdata = rr))]  # feols drops singletons -> NA
+      hh <- rr[is.finite(rr), .(sd = stats::sd(rr), nn = .N), by = .u][nn >= min_periods & sd > 0]
       mean(hh$sd)
     }, numeric(1)))
   }
