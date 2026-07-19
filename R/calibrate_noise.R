@@ -22,15 +22,18 @@
 #'
 #' @param data Panel data (data.table or data.frame).
 #' @param outcome,unit_var,time_var,treat_ind_var Column names.
-#' @param family "rate" (Poisson-lognormal) or "share" (logit-normal-Binomial).
+#' @param family "rate" (Poisson-lognormal, returns \code{latent_sigma}) or
+#'   "share" (Beta-Binomial, returns \code{latent_phi} -- the concentration).
 #' @param pop_var Population column (required for family="rate").
 #' @param total_count_var Binomial denominator column (required for family="share").
 #' @param rate_scale Rate denominator scale (default 1e5).
 #' @param n_cal_sims Sims per grid point in the sigma solve (default 60).
 #' @param seed RNG seed for the calibration sim (default 1).
 #' @param min_periods Minimum untreated periods per unit to enter the SD target (default 5).
-#' @return A list with \code{latent_sigma}, \code{latent_rho}, \code{sigma_analytic},
-#'   \code{sigma_range}, \code{target_per_unit_sd}, and \code{family}.
+#' @return A list. For \code{family="rate"}: \code{latent_sigma},
+#'   \code{sigma_analytic}, \code{sigma_range}. For \code{family="share"}:
+#'   \code{latent_phi} (Beta-Binomial concentration), \code{phi_analytic},
+#'   \code{phi_range}. Both: \code{latent_rho}, \code{target_per_unit_sd}, \code{family}.
 #' @export
 calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
                             family = c("rate", "share"),
@@ -61,27 +64,69 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
   # --- real per-unit residual SD (the target) + per-unit A/B moments + rho ---
   un <- d[unt, .(.u, .t, .mu, .expo, r = get(outcome) - .mu)]
   un <- un[is.finite(r) & is.finite(.mu) & is.finite(.expo) & .expo > 0]   # drop feols-singleton NAs
-  # A = per-cell sampling variance (Poisson rate / Binomial share); B = mu^2 loading on
-  # the multiplicative-overdispersion term (same latent lognormal shock as the obs draw).
+  # A = per-cell sampling variance (Poisson rate / Binomial share).
+  # B = overdispersion loading: rate -> mu^2 (multiplicative lognormal, term k = e^{sig^2}-1);
+  #     share -> mu(1-mu)(1-1/n) (Beta-Binomial, term rho_icc = 1/(phi+1)).
   hs <- un[, .(sd = stats::sd(r), n = .N,
                A = if (family == "rate") mean(.mu * rate_scale / .expo) else mean(.mu * (1 - .mu) / .expo),
-               B = mean(.mu^2)),
+               B = if (family == "rate") mean(.mu^2) else mean(.mu * (1 - .mu) * pmax(1 - 1 / .expo, 0))),
            by = .u][n >= min_periods & sd > 0]
   target <- mean(hs$sd)
   data.table::setorder(un, .u, .t); un[, rl := data.table::shift(r), by = .u]
   rho <- tryCatch(as.numeric(stats::coef(stats::lm(r ~ 0 + rl, data = un[is.finite(rl)]))[1]),
                   error = function(e) 0)
   rho <- max(min(rho, 0.95), 0)
+  base <- d[, .(.u, .t, .mu, .expo, treat = get(treat_ind_var))]
 
-  # --- closed-form (analytic) sigma: mean_u sqrt(A_u + B_u*k) = target ---
-  #     k = e^{sigma^2}-1 for the multiplicative latent lognormal shock exp(eta - sigma^2/2),
-  #     used identically for rate (Poisson) and share (Binomial) obs draws.
+  if (family == "share") {
+    # ------- Beta-Binomial concentration phi (bounded, mean-preserving share DGP) -------
+    # Per-cell share variance = A + B*rho_icc with rho_icc = 1/(phi+1) in (0,1). Solve the
+    # moment match for rho_icc, then phi; refine phi so the SIMULATED per-unit residual SD
+    # (Beta-Binomial draw, Gaussian-copula AR(1)) matches the target -- mirrors the obs draw.
+    rho_icc_an <- tryCatch(
+      stats::uniroot(function(ri) mean(sqrt(pmax(hs$A + hs$B * ri, 0))) - target, c(1e-6, 1 - 1e-6))$root,
+      error = function(e) if (target > mean(sqrt(hs$A + hs$B))) 1 - 1e-6 else 1e-3)
+    phi_analytic <- 1 / rho_icc_an - 1
+    sim_sd_bb <- function(phi, s0) {
+      set.seed(s0)
+      mean(vapply(seq_len(n_cal_sims), function(b) {
+        bb <- data.table::copy(base); data.table::setorder(bb, .u, .t)
+        bb[, z := {   # standardized AR(1) latent, used as the copula pnorm(z)
+          n <- .N; v <- numeric(n); v[1] <- stats::rnorm(1, 0, 1)
+          if (n > 1) { e <- stats::rnorm(n, 0, sqrt(1 - rho^2)); for (j in 2:n) v[j] <- rho * v[j - 1] + e[j] }
+          v
+        }, by = .u]
+        bb[, ys := stats::rbinom(.N, size = pmax(round(.expo), 1L),
+              prob = stats::qbeta(stats::pnorm(z), pmax(.mu, 1e-9) * phi, pmax(1 - .mu, 1e-9) * phi)) /
+              pmax(round(.expo), 1L)]
+        f <- fixest::feols(stats::as.formula("ys ~ 1 | `.u` + `.t`"), data = bb[treat != 1], notes = FALSE)
+        rr <- bb[treat != 1]; rr[, rr := ys - as.numeric(stats::predict(f, newdata = rr))]
+        hh <- rr[is.finite(rr), .(sd = stats::sd(rr), nn = .N), by = .u][nn >= min_periods & sd > 0]
+        mean(hh$sd)
+      }, numeric(1)))
+    }
+    grid <- sort(unique(pmax(phi_analytic * c(0.4, 0.7, 1.0, 1.5, 2.5), 1e-3)))
+    sd_grid <- vapply(seq_along(grid), function(i) sim_sd_bb(grid[i], seed + i), numeric(1))
+    # sd is monotone DECREASING in phi (more concentration -> less overdispersion)
+    phi_sim <- if (target >= max(sd_grid) || target <= min(sd_grid)) {
+      grid[which.min(abs(sd_grid - target))]          # target outside grid -> nearest point
+    } else {
+      as.numeric(stats::approx(x = sd_grid, y = grid, xout = target)$y)
+    }
+    return(list(latent_phi = as.numeric(phi_sim), latent_rho = rho,
+                phi_analytic = as.numeric(phi_analytic),
+                phi_range = sort(c(as.numeric(phi_analytic), as.numeric(phi_sim))),
+                latent_sigma = NA_real_,
+                target_per_unit_sd = target, family = family))
+  }
+
+  # ------- family == "rate": multiplicative lognormal log-SD sigma -------
+  # closed-form sigma: mean_u sqrt(A_u + B_u*k) = target, k = e^{sigma^2}-1
   k_an <- tryCatch(stats::uniroot(function(k) mean(sqrt(pmax(hs$A + hs$B * k, 0))) - target,
                                   c(0, 50))$root, error = function(e) 0)
   sigma_analytic <- sqrt(log1p(k_an))
 
-  # --- sim-matched sigma: draw the DGP at a grid, re-fit TWFE, match per-unit SD ---
-  base <- d[, .(.u, .t, .mu, .expo, treat = get(treat_ind_var))]
+  # sim-matched sigma: draw the DGP at a grid, re-fit TWFE, match per-unit SD
   sim_sd <- function(sig, s0) {
     set.seed(s0)
     mean(vapply(seq_len(n_cal_sims), function(b) {
@@ -91,13 +136,7 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
         if (n > 1) { e <- stats::rnorm(n, 0, sig * sqrt(1 - rho^2)); for (j in 2:n) v[j] <- rho * v[j - 1] + e[j] }
         v
       }, by = .u]
-      if (family == "rate") {
-        bb[, ys := stats::rpois(.N, pmax(pmax(.mu, 0) * .expo / rate_scale * exp(eta - sig^2 / 2), 1e-8)) * rate_scale / .expo]
-      } else {
-        # multiplicative latent lognormal on the share (matches the obs draw), capped at 1
-        bb[, ys := stats::rbinom(.N, size = pmax(round(.expo), 1L),
-              prob = pmin(pmax(.mu, 0) * exp(eta - sig^2 / 2), 1)) / pmax(round(.expo), 1L)]
-      }
+      bb[, ys := stats::rpois(.N, pmax(pmax(.mu, 0) * .expo / rate_scale * exp(eta - sig^2 / 2), 1e-8)) * rate_scale / .expo]
       f <- fixest::feols(stats::as.formula("ys ~ 1 | `.u` + `.t`"), data = bb[treat != 1], notes = FALSE)
       rr <- bb[treat != 1]; rr[, rr := ys - as.numeric(stats::predict(f, newdata = rr))]  # feols drops singletons -> NA
       hh <- rr[is.finite(rr), .(sd = stats::sd(rr), nn = .N), by = .u][nn >= min_periods & sd > 0]

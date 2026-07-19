@@ -22,6 +22,26 @@
 #   cm_meandep  - state-specific / mean-dependent dispersion
 # ---------------------------------------------------------------------------
 
+#' Two-way (unit + year) fitted surface from untreated cells
+#'
+#' \eqn{S(i,t)=\widehat\alpha_i+\widehat\gamma_t}, fit on untreated observations
+#' with \code{fixest::feols} -- the SAME routine \code{calibrate_noise} and the
+#' imputation estimator use, so the reroll surface and the estimator's own
+#' counterfactual are the identical fit (they agree exactly wherever the design
+#' is full rank; they differ only at unbalanced-panel edge cells). \code{feols}
+#' returns NA for a cell whose unit or year level is absent from the untreated
+#' fit; those fall back to the observed outcome (for control cells the observed
+#' value IS the no-law mean).
+#' @keywords internal
+.twfe_fitted_untreated <- function(d, unit, time, outcome, untreated) {
+  fml <- stats::as.formula(sprintf("`%s` ~ 1 | `%s` + `%s`", outcome, unit, time))
+  fit <- fixest::feols(fml, data = d[untreated], notes = FALSE)
+  S <- as.numeric(stats::predict(fit, newdata = d))
+  bad <- !is.finite(S)
+  if (any(bad)) S[bad] <- as.numeric(d[[outcome]])[bad]
+  S
+}
+
 #' TWFE control-mean surface (default)
 #'
 #' Additive unit + year fixed effects fit on untreated observations only,
@@ -31,9 +51,7 @@
 cm_twfe <- function(df, unit, time, outcome, treat_ind, pop_var = NULL) {
   d <- data.table::as.data.table(df)
   untreated <- d[[treat_ind]] != 1
-  fml <- stats::as.formula(sprintf("`%s` ~ factor(`%s`) + factor(`%s`)", outcome, unit, time))
-  fit <- stats::lm(fml, data = d[untreated])
-  as.numeric(stats::predict(fit, newdata = d))
+  .twfe_fitted_untreated(d, unit, time, outcome, untreated)
 }
 
 #' CS-anchored control-mean surface (for the CS DGP)
@@ -54,9 +72,7 @@ cm_cs_anchor <- function(df, unit, time, outcome, treat_ind, pop_var = NULL) {
   d <- data.table::as.data.table(df)
   u <- as.character(d[[unit]]); tm <- d[[time]]; y <- d[[outcome]]; tr <- d[[treat_ind]]
   untreated <- tr != 1
-  fml <- stats::as.formula(sprintf("`%s` ~ factor(`%s`) + factor(`%s`)", outcome, unit, time))
-  fit <- stats::lm(fml, data = d[untreated])
-  S <- as.numeric(stats::predict(fit, newdata = d))               # S(i,t) = alpha_i + gamma_t
+  S <- .twfe_fitted_untreated(d, unit, time, outcome, untreated)   # S(i,t) = alpha_i + gamma_t (feols)
   # cohort g_i = first treated year per unit (eventually-treated); NA for never-treated
   g_by_unit <- tapply(tm[tr == 1], u[tr == 1], min)
   g <- as.numeric(g_by_unit[u])                                    # per-row cohort (NA = never-treated)

@@ -258,29 +258,50 @@ run_power_analysis <- function(data_clean,
         sig <- if (!is.null(noise_spec$latent_sigma)) noise_spec$latent_sigma else
                latent_sigma_default(counterfactual_data, outcome, pop_var, treat_ind_var)
         rho_lat <- if (!is.null(noise_spec$latent_rho)) noise_spec$latent_rho else 0
+        # Standardized latent Gaussian .v ~ marginal N(0,1) (rho_lat adds serial dependence,
+        # not magnitude): stationary var = 1; innovation var = 1 - rho^2. It feeds BOTH the
+        # multiplicative lognormal shock exp(sig*.v - sig^2/2) (rate / legacy share) AND the
+        # Gaussian copula pnorm(.v) for the Beta-Binomial share draw.
         if (rho_lat == 0) {
-          counterfactual_data[, .lat := exp(stats::rnorm(.N, 0, sig) - sig^2 / 2)]  # iid, mean-preserving
+          counterfactual_data[, .v := stats::rnorm(.N, 0, 1)]
         } else {
-          # AR(1) latent log-shock per unit at FIXED marginal SD = sig (adds serial dependence,
-          # not magnitude): stationary var = sig^2; innovation var = sig^2 (1 - rho^2).
           data.table::setorderv(counterfactual_data, c(unit_var, time_var))
-          counterfactual_data[, .lat := {
-            n <- .N; v <- numeric(n); v[1] <- stats::rnorm(1, 0, sig)
-            if (n > 1) { e <- stats::rnorm(n, 0, sig * sqrt(1 - rho_lat^2))
-                        for (j in 2:n) v[j] <- rho_lat * v[j - 1] + e[j] }
-            exp(v - sig^2 / 2)
+          counterfactual_data[, .v := {
+            n <- .N; z <- numeric(n); z[1] <- stats::rnorm(1, 0, 1)
+            if (n > 1) { e <- stats::rnorm(n, 0, sqrt(1 - rho_lat^2))
+                        for (j in 2:n) z[j] <- rho_lat * z[j - 1] + e[j] }
+            z
           }, by = c(unit_var)]
         }
         if (use_count_obs) {
-          counterfactual_data[, .lambda := pmax(.mean_rate, 0) * .eff * get(pop_var) / RATE_SCALE * .lat]
+          # Poisson-lognormal: mean-preserving multiplicative shock exp(sig*.v - sig^2/2)
+          counterfactual_data[, .lambda := pmax(.mean_rate, 0) * .eff * get(pop_var) / RATE_SCALE *
+                                exp(sig * .v - sig^2 / 2)]
           counterfactual_data[, y_cf := stats::rpois(.N, pmax(.lambda, 1e-8)) / get(pop_var) * RATE_SCALE]
-        } else {
+        } else if (identical(noise_spec$share_od, "betabinom")) {
+          # Beta-Binomial: p ~ Beta(mu*phi, (1-mu)*phi) -- mean-preserving (E[p]=mu), bounded on
+          # (0,1) BY CONSTRUCTION (no clamp in either direction), serially dependent via the
+          # Gaussian copula pnorm(.v). Concentration phi = latent_phi. Degenerate boundary means
+          # (mu<=0 / mu>=1) resolve to a certain 0 / 1 -- the exact Beta limits, not a clamp
+          # (the pmax on the shape args only keeps qbeta finite for those rows, which fifelse
+          # then overrides; for every in-support cell 0<mu<1 it is a no-op).
+          phi <- if (!is.null(noise_spec$latent_phi)) noise_spec$latent_phi else 1e6
           counterfactual_data[, .n_total := as.integer(round(get(total_count_var)))]
-          counterfactual_data[, .p_eff := pmin(pmax(.mean_rate, 0) * .eff * .lat, 1)]
+          counterfactual_data[, .mu := .mean_rate * .eff]
+          counterfactual_data[, .p_eff := {
+            p <- stats::qbeta(stats::pnorm(.v), pmax(.mu, 1e-9) * phi, pmax(1 - .mu, 1e-9) * phi)
+            data.table::fifelse(.mu <= 0, 0, data.table::fifelse(.mu >= 1, 1, p))
+          }]
+          counterfactual_data[, y_cf := data.table::fifelse(.n_total > 0L,
+              stats::rbinom(.N, size = pmax(.n_total, 1L), prob = .p_eff) / .n_total, 0)]
+        } else {
+          # legacy multiplicative-lognormal share: p = mu * exp(sig*.v - sig^2/2), capped at 1
+          counterfactual_data[, .n_total := as.integer(round(get(total_count_var)))]
+          counterfactual_data[, .p_eff := pmin(pmax(.mean_rate, 0) * .eff * exp(sig * .v - sig^2 / 2), 1)]
           counterfactual_data[, y_cf := data.table::fifelse(.n_total > 0L,
               stats::rbinom(.N, size = pmax(.n_total, 1L), prob = .p_eff) / .n_total, 0)]
         }
-        drop_cols <- intersect(c(".mean_rate", ".eff", ".lat", ".lambda", ".n_total", ".p_eff"),
+        drop_cols <- intersect(c(".mean_rate", ".eff", ".v", ".mu", ".lat", ".lambda", ".n_total", ".p_eff"),
                                names(counterfactual_data))
         if (length(drop_cols)) counterfactual_data[, (drop_cols) := NULL]
 
