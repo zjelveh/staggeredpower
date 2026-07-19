@@ -76,13 +76,14 @@ run_power_analysis <- function(data_clean,
   noise_spec <- normalize_noise_spec(noise_spec)
 
   # Reroll control-mean surface defaults to MATCH the DGP's parallel-trends assumption
-  # (unless the caller set noise_spec$control_mean explicitly). The CS DGP anchors the
-  # treated counterfactual to the realized Y_i(g-1); "cs_anchor" draws the treated
-  # pre-period around that same anchor + common trend, so CS is not biased by the
-  # anchor residual an imputation-shaped surface (twfe = alpha_i+gamma_t) would leave.
-  # Only relevant when noise_spec$reroll_controls is TRUE.
+  # (unless the caller set noise_spec$control_mean explicitly). The CS DGP moves the
+  # controls along a single calendar-time path fit to did's OWN control-side dc(g,t)
+  # ("cs_group"), so CS's comparison and the DGP agree and the CS null bias is small
+  # (a global FE surface, "cs_anchor", instead follows the all-states average and
+  # leaves a larger residual). Imputation uses the additive FE surface it imputes
+  # with ("twfe"). Only relevant when noise_spec$reroll_controls is TRUE.
   if (is.null(noise_spec$control_mean)) {
-    noise_spec$control_mean <- if (identical(pta_type, "cs")) "cs_anchor" else "twfe"
+    noise_spec$control_mean <- if (identical(pta_type, "cs")) "cs_group" else "twfe"
   }
 
   # Count obs model requires pop_var for rate→count conversion

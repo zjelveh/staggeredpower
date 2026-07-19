@@ -85,10 +85,60 @@ cm_cs_anchor <- function(df, unit, time, outcome, treat_ind, pop_var = NULL) {
   as.numeric(ifelse(!is.na(g) & !is.na(ay), ay + (S - aS), S))
 }
 
+#' CS group-consistent control-mean surface (default for the CS DGP)
+#'
+#' Moves every control unit along a SINGLE calendar-time control path \eqn{C(t)},
+#' anchored to each treated unit's realized pre-adoption value \eqn{Y_i(g-1)}. The
+#' path is recovered from did's OWN control-side: \code{enforce_PTA_CS} sets the
+#' treated counterfactual to \eqn{Y_i(g-1) + dc(g,t)} (stored in
+#' \code{cf_mean_rate}), so \eqn{dc(g,t) = } \code{cf_mean_rate} \eqn{- Y_i(g-1)}
+#' is did's implied control-side change for each cohort-time. We fit one path by
+#' least squares so \eqn{C(t) - C(g-1) \approx dc(g,t)} across all cohorts. Because
+#' the treated counterfactual and the control cells then move by the same \eqn{dc},
+#' CS's own comparison and the DGP agree and the CS null bias is small. Unlike a
+#' per-unit trend the surface stays smooth (so injected noise is not double-counted),
+#' and unlike the global FE trend (\code{cm_cs_anchor}) it follows did's comparison
+#' side rather than the all-states average. One path cannot match every cohort's
+#' \eqn{dc} exactly (comparison groups diverge), leaving a small irreducible
+#' residual -- the honest cost of a single control surface for cohort-specific
+#' comparisons. Falls back to anchors when \code{cf_mean_rate} is unavailable.
+#' @keywords internal
+cm_cs_group <- function(df, unit, time, outcome, treat_ind, pop_var = NULL) {
+  d <- data.table::as.data.table(df)
+  u <- as.character(d[[unit]]); tm <- as.numeric(d[[time]]); y <- as.numeric(d[[outcome]]); tr <- d[[treat_ind]]
+  cfm <- if ("cf_mean_rate" %in% names(d)) as.numeric(d[["cf_mean_rate"]]) else rep(NA_real_, nrow(d))
+  # cohort g_i and realized anchor Y_i(g-1)
+  g_by_unit <- tapply(tm[tr == 1], u[tr == 1], min)
+  g <- as.numeric(g_by_unit[u])
+  is_anchor <- !is.na(g) & tm == (g - 1)
+  anchor_y <- tapply(y[is_anchor], u[is_anchor], function(z) z[1])
+  ay <- as.numeric(anchor_y[u]); at <- g - 1
+  # never-treated: anchor to own untreated mean at its mean time
+  du <- data.table::data.table(u = u[tr != 1], t = tm[tr != 1], y = y[tr != 1])
+  nts <- du[, .(yb = mean(y), tb = round(mean(t))), by = u]
+  nt <- is.na(g); mi <- match(u[nt], nts$u); ay[nt] <- nts$yb[mi]; at[nt] <- nts$tb[mi]
+  # did's own control-side dc(g,t) = cf_mean_rate - anchor, on treated cells
+  keep <- tr == 1 & is.finite(cfm) & is.finite(ay)
+  dc <- data.table::data.table(g = g[keep], t = tm[keep], d = cfm[keep] - ay[keep])[is.finite(d)][
+        , .(d = mean(d)), by = .(g, t)]
+  if (nrow(dc) < 2L) return(as.numeric(ay))                       # no usable dc -> anchors only
+  # single calendar-time control path C(t): least squares C(t) - C(g-1) ~= dc(g,t)
+  lev <- sort(unique(c(dc$t, dc$g - 1)))
+  M <- matrix(0, nrow(dc), length(lev)); it <- match(dc$t, lev); ib <- match(dc$g - 1, lev)
+  for (k in seq_len(nrow(dc))) { M[k, it[k]] <- M[k, it[k]] + 1; M[k, ib[k]] <- M[k, ib[k]] - 1 }
+  cf <- tryCatch({ cc <- qr.coef(qr(M), dc$d); cc[is.na(cc)] <- 0; cc },
+                 error = function(e) rep(0, length(lev)))
+  allt <- sort(unique(tm)); Cfull <- stats::approx(lev, cf, xout = allt, rule = 2)$y
+  Ct <- Cfull[match(tm, allt)]; Cat <- Cfull[match(at, allt)]
+  Ct[!is.finite(Ct)] <- 0; Cat[!is.finite(Cat)] <- 0
+  as.numeric(ay + (Ct - Cat))
+}
+
 # Registry of available control-mean surfaces. ADD NEW SURFACES HERE.
 .CONTROL_MEAN_SURFACES <- list(
   twfe      = cm_twfe,
-  cs_anchor = cm_cs_anchor
+  cs_anchor = cm_cs_anchor,
+  cs_group  = cm_cs_group
 )
 
 #' Look up a control-mean surface by name (default "twfe").
