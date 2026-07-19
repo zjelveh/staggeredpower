@@ -36,9 +36,43 @@ cm_twfe <- function(df, unit, time, outcome, treat_ind, pop_var = NULL) {
   as.numeric(stats::predict(fit, newdata = d))
 }
 
+#' CS-anchored control-mean surface (for the CS DGP)
+#'
+#' Anchors each eventually-treated unit's untreated mean to its REALIZED
+#' pre-adoption value plus the common time trend,
+#' \eqn{\mu(i,t) = Y_i(g-1) + (\gamma_t - \gamma_{g-1})}, matching the anchor
+#' \code{enforce_PTA_CS} builds the treated counterfactual on. \code{cm_twfe}
+#' instead centers the pre-period on the unit's AVERAGE untreated level
+#' (\eqn{\alpha_i + \gamma_{g-1}}); the gap is the anchor residual
+#' \eqn{r_i = Y_i(g-1) - (\alpha_i + \gamma_{g-1})}, a constant per-unit shift
+#' that cancels in every change (so control roles / parallel trends are
+#' preserved) but fixes the treated unit's anchor so CS is unbiased. The residual
+#' is what distinguishes CS from imputation, so this keeps the CS DGP distinct.
+#' Never-treated units have no anchor and fall back to \eqn{\alpha_i + \gamma_t}.
+#' @keywords internal
+cm_cs_anchor <- function(df, unit, time, outcome, treat_ind, pop_var = NULL) {
+  d <- data.table::as.data.table(df)
+  u <- as.character(d[[unit]]); tm <- d[[time]]; y <- d[[outcome]]; tr <- d[[treat_ind]]
+  untreated <- tr != 1
+  fml <- stats::as.formula(sprintf("`%s` ~ factor(`%s`) + factor(`%s`)", outcome, unit, time))
+  fit <- stats::lm(fml, data = d[untreated])
+  S <- as.numeric(stats::predict(fit, newdata = d))               # S(i,t) = alpha_i + gamma_t
+  # cohort g_i = first treated year per unit (eventually-treated); NA for never-treated
+  g_by_unit <- tapply(tm[tr == 1], u[tr == 1], min)
+  g <- as.numeric(g_by_unit[u])                                    # per-row cohort (NA = never-treated)
+  # anchor Y_i(g-1) and S_i(g-1) from the pre-adoption row of each treated unit
+  is_anchor <- !is.na(g) & tm == (g - 1)
+  anchor_y <- tapply(y[is_anchor], u[is_anchor], function(z) z[1])
+  anchor_S <- tapply(S[is_anchor], u[is_anchor], function(z) z[1])
+  ay <- as.numeric(anchor_y[u]); aS <- as.numeric(anchor_S[u])
+  # mu(i,t) = Y_i(g-1) + (gamma_t - gamma_{g-1}) = ay + (S - aS); never-treated / no anchor -> S
+  as.numeric(ifelse(!is.na(g) & !is.na(ay), ay + (S - aS), S))
+}
+
 # Registry of available control-mean surfaces. ADD NEW SURFACES HERE.
 .CONTROL_MEAN_SURFACES <- list(
-  twfe = cm_twfe
+  twfe      = cm_twfe,
+  cs_anchor = cm_cs_anchor
 )
 
 #' Look up a control-mean surface by name (default "twfe").
