@@ -61,9 +61,11 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
   # --- real per-unit residual SD (the target) + per-unit A/B moments + rho ---
   un <- d[unt, .(.u, .t, .mu, .expo, r = get(outcome) - .mu)]
   un <- un[is.finite(r) & is.finite(.mu) & is.finite(.expo) & .expo > 0]   # drop feols-singleton NAs
+  # A = per-cell sampling variance (Poisson rate / Binomial share); B = mu^2 loading on
+  # the multiplicative-overdispersion term (same latent lognormal shock as the obs draw).
   hs <- un[, .(sd = stats::sd(r), n = .N,
                A = if (family == "rate") mean(.mu * rate_scale / .expo) else mean(.mu * (1 - .mu) / .expo),
-               B = if (family == "rate") mean(.mu^2)                    else mean((.mu * (1 - .mu))^2)),
+               B = mean(.mu^2)),
            by = .u][n >= min_periods & sd > 0]
   target <- mean(hs$sd)
   data.table::setorder(un, .u, .t); un[, rl := data.table::shift(r), by = .u]
@@ -72,10 +74,11 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
   rho <- max(min(rho, 0.95), 0)
 
   # --- closed-form (analytic) sigma: mean_u sqrt(A_u + B_u*k) = target ---
-  #     k = e^{sigma^2}-1 (rate, lognormal) or sigma^2 (share, logit delta method)
+  #     k = e^{sigma^2}-1 for the multiplicative latent lognormal shock exp(eta - sigma^2/2),
+  #     used identically for rate (Poisson) and share (Binomial) obs draws.
   k_an <- tryCatch(stats::uniroot(function(k) mean(sqrt(pmax(hs$A + hs$B * k, 0))) - target,
                                   c(0, 50))$root, error = function(e) 0)
-  sigma_analytic <- if (family == "rate") sqrt(log1p(k_an)) else sqrt(k_an)
+  sigma_analytic <- sqrt(log1p(k_an))
 
   # --- sim-matched sigma: draw the DGP at a grid, re-fit TWFE, match per-unit SD ---
   base <- d[, .(.u, .t, .mu, .expo, treat = get(treat_ind_var))]
@@ -91,8 +94,9 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
       if (family == "rate") {
         bb[, ys := stats::rpois(.N, pmax(pmax(.mu, 0) * .expo / rate_scale * exp(eta - sig^2 / 2), 1e-8)) * rate_scale / .expo]
       } else {
+        # multiplicative latent lognormal on the share (matches the obs draw), capped at 1
         bb[, ys := stats::rbinom(.N, size = pmax(round(.expo), 1L),
-              prob = stats::plogis(stats::qlogis(.mu) + eta)) / pmax(round(.expo), 1L)]
+              prob = pmin(pmax(.mu, 0) * exp(eta - sig^2 / 2), 1)) / pmax(round(.expo), 1L)]
       }
       f <- fixest::feols(stats::as.formula("ys ~ 1 | `.u` + `.t`"), data = bb[treat != 1], notes = FALSE)
       rr <- bb[treat != 1]; rr[, rr := ys - as.numeric(stats::predict(f, newdata = rr))]  # feols drops singletons -> NA
