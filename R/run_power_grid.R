@@ -309,7 +309,9 @@ run_power_grid <- function(data_clean,
       mean_att = mean(att),
       mean_se = mean(se),
       n_sims = .N / length(unique(model)),
-      mean_units_dropped = mean(n_dropped_units, na.rm = TRUE)
+      # M7 fix: run_power_analysis emits n_violating_units, not n_dropped_units;
+      # the old name errored ("object 'n_dropped_units' not found") at this summary.
+      mean_units_dropped = mean(n_violating_units, na.rm = TRUE)
     ), by = .(spec_id, pta_type, enforce_type, percent_effect,
               transform_outcome, controls, model)]
 
