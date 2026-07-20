@@ -108,7 +108,10 @@ wcr_test <- function(data, outcome, unit_var, time_var, group_var, treat_ind_var
   }
   if (ycol %in% names(d)) d[, (ycol) := NULL]
   tstar <- tstar[is.finite(tstar)]
-  cval  <- as.numeric(stats::quantile(abs(tstar), 0.975))
+  # Two-sided level-0.05 test on the FOLDED statistic |t*|: reject when |t_obs|
+  # exceeds the 0.95 quantile of |t*| (P(|t*|>cval)=0.05). Using 0.975 here would
+  # implement a 2.5% test and disagree with the two-sided wcr_pval below.
+  cval  <- as.numeric(stats::quantile(abs(tstar), 0.95))
 
   list(estimate = o[1], se = o[2], t_obs = t_obs,
        wcr_cval = cval, reject = as.integer(abs(t_obs) > cval),
