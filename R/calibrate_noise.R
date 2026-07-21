@@ -39,7 +39,8 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
                             family = c("rate", "share"),
                             pop_var = NULL, total_count_var = NULL,
                             rate_scale = 1e5, n_cal_sims = 60L,
-                            seed = 1L, min_periods = 5L) {
+                            seed = 1L, min_periods = 5L,
+                            group_var = NULL, cohort_trend = FALSE) {
   family <- match.arg(family)
   if (family == "rate"  && is.null(pop_var))         stop("family='rate' requires pop_var")
   if (family == "share" && is.null(total_count_var)) stop("family='share' requires total_count_var")
@@ -55,7 +56,22 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
   d <- d[get(unit_var) %in% .su & get(time_var) %in% .st]
   unt <- d[[treat_ind_var]] != 1
   if (!requireNamespace("fixest", quietly = TRUE)) stop("calibrate_noise requires the 'fixest' package.")
-  fml <- stats::as.formula(sprintf("`%s` ~ 1 | `%s` + `%s`", outcome, unit_var, time_var))
+  # DGP-consistent detrending. For the cs_cohort DGP (cohort_trend=TRUE) residualize
+  # off the SAME non-additive surface the DGP uses as its mean -- state + year FE +
+  # cohort-specific linear trend -- so the calibrated sigma/phi capture only the
+  # idiosyncratic noise BEYOND it, not the cohort-trend variation the mean already
+  # carries (avoiding the double-count). Plain two-way FE otherwise (the additive /
+  # imputation DGP), where that variation genuinely IS noise.
+  if (isTRUE(cohort_trend)) {
+    if (is.null(group_var)) stop("calibrate_noise: cohort_trend=TRUE requires group_var")
+    .gv <- d[[group_var]]
+    d[, .cohf := factor(ifelse(is.na(.gv), 0, as.numeric(.gv)))]
+    d[, .yrc  := as.numeric(get(time_var)) - mean(sort(unique(as.numeric(get(time_var)))))]
+    if (!("0" %in% levels(d[[".cohf"]])))
+      stop("calibrate_noise: cohort_trend needs never-treated (cohort 0) units for the reference")
+  }
+  resid_rhs <- if (isTRUE(cohort_trend)) "i(.cohf, .yrc, ref = '0')" else "1"
+  fml <- stats::as.formula(sprintf("`%s` ~ %s | `%s` + `%s`", outcome, resid_rhs, unit_var, time_var))
   fit <- fixest::feols(fml, data = d[unt], notes = FALSE)
   mu <- as.numeric(stats::predict(fit, newdata = d))
   mu <- if (family == "share") pmin(pmax(mu, 1e-4), 1 - 1e-4) else pmax(mu, 0)
@@ -77,6 +93,7 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
                   error = function(e) 0)
   rho <- max(min(rho, 0.95), 0)
   base <- d[, .(.u, .t, .mu, .expo, treat = get(treat_ind_var))]
+  if (isTRUE(cohort_trend)) base[, `:=`(.cohf = d$.cohf, .yrc = d$.yrc)]   # carry the detrend regressors into the sim re-fit
 
   if (family == "share") {
     # ------- Beta-Binomial concentration phi (bounded, mean-preserving share DGP) -------
@@ -99,7 +116,7 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
         bb[, ys := stats::rbinom(.N, size = pmax(round(.expo), 1L),
               prob = stats::qbeta(stats::pnorm(z), pmax(.mu, 1e-9) * phi, pmax(1 - .mu, 1e-9) * phi)) /
               pmax(round(.expo), 1L)]
-        f <- fixest::feols(stats::as.formula("ys ~ 1 | `.u` + `.t`"), data = bb[treat != 1], notes = FALSE)
+        f <- fixest::feols(stats::as.formula(sprintf("ys ~ %s | `.u` + `.t`", resid_rhs)), data = bb[treat != 1], notes = FALSE)
         rr <- bb[treat != 1]; rr[, rr := ys - as.numeric(stats::predict(f, newdata = rr))]
         hh <- rr[is.finite(rr), .(sd = stats::sd(rr), nn = .N), by = .u][nn >= min_periods & sd > 0]
         mean(hh$sd)
@@ -137,7 +154,7 @@ calibrate_noise <- function(data, outcome, unit_var, time_var, treat_ind_var,
         v
       }, by = .u]
       bb[, ys := stats::rpois(.N, pmax(pmax(.mu, 0) * .expo / rate_scale * exp(eta - sig^2 / 2), 1e-8)) * rate_scale / .expo]
-      f <- fixest::feols(stats::as.formula("ys ~ 1 | `.u` + `.t`"), data = bb[treat != 1], notes = FALSE)
+      f <- fixest::feols(stats::as.formula(sprintf("ys ~ %s | `.u` + `.t`", resid_rhs)), data = bb[treat != 1], notes = FALSE)
       rr <- bb[treat != 1]; rr[, rr := ys - as.numeric(stats::predict(f, newdata = rr))]  # feols drops singletons -> NA
       hh <- rr[is.finite(rr), .(sd = stats::sd(rr), nn = .N), by = .u][nn >= min_periods & sd > 0]
       mean(hh$sd)
