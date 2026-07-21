@@ -425,7 +425,7 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
   }
   gt[, delta_control := deltas]
   data.table::setkeyv(gt, c("g", "t"))
-  result <- gt[, .(g, t, delta_control)]
+  result <- gt[, .(g, t, att, delta_control)]   # att = ATT_S(g,t) (raw), used by the cs_cohort surface
   .sp_cs_delta_cache[[key]] <- data.table::copy(result)   # store pristine copy
   result
 }
@@ -456,8 +456,25 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
 
   # Make a copy to store counterfactuals
   df_new <- data.table::as.data.table(df)
-  df_new[, counterfactual := get(outcome_col)]
-  if (use_count_obs) df_new[, cf_mean_rate := NA_real_]
+
+  # --- CS-cohort surface (option B, opt-in via control_mean = "cs_cohort") ---
+  # Build a smoothed, non-additive untreated mean surface S (state FE + common
+  # year FE + cohort-specific time trend) and run ALL the CS-consistency
+  # machinery below on S instead of the realized outcome. Effect: control cells
+  # carry S (non-additive -> imputation misspecified); the treated counterfactual
+  # is S(i,g-1) + did's control-side change OF S (-> CS reads ~0 on the post
+  # estimand); and no realized cell enters the mean surface (no noise recycling).
+  use_cohort_surface <- identical(noise_spec$control_mean, "cs_cohort")
+  if (use_cohort_surface) {
+    df_new[, .cs_surface := cs_cohort_surface(df_new, unit_col, group_col,
+                                              time_col, outcome_col)]
+  }
+  oc_eff <- if (use_cohort_surface) ".cs_surface" else outcome_col
+
+  df_new[, counterfactual := get(oc_eff)]
+  if (use_count_obs) {
+    df_new[, cf_mean_rate := if (use_cohort_surface) as.numeric(get(oc_eff)) else NA_real_]
+  }
 
   # Calculate rel_pass if not present
   if (!"rel_pass" %in% names(df_new)) {
@@ -469,10 +486,29 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   # only matched did::att_gt on balanced panels and left a non-zero CS/CS null bias
   # on ragged ones. The DGP now inherits exactly whatever control group + estimand
   # the estimator uses (incl. late-adopter / not-yet-treated controls), by design.
-  delta_dt <- .cs_delta_control(df_new, unit_col, group_col, time_col, outcome_col,
+  delta_dt <- .cs_delta_control(df_new, unit_col, group_col, time_col, oc_eff,
                                 controls, control_group, est_method, base_period,
                                 allow_unbalanced_panel)
   data.table::setkeyv(delta_dt, c("g", "t"))
+
+  # --- CS-cohort surface (option B): build the full mean surface directly. ---
+  # cf_mean_rate is already S everywhere (set above). Subtract the raw did estimate
+  # ATT_S(g,t) from the treated POST cells did actually estimates, so CS reads ~0
+  # there; unestimated post cells stay = S (inert for CS). This matches the verified
+  # prototype and avoids the ragged-panel residual of the anchor + delta_control
+  # reconstruction (which leaves a nonzero CS null on unbalanced panels like SHR).
+  if (use_cohort_surface) {
+    delta_dt[, .gt_key := paste(g, t)]
+    lk <- stats::setNames(delta_dt$att, delta_dt$.gt_key)
+    delta_dt[, .gt_key := NULL]
+    att_s  <- lk[paste(df_new[[group_col]], df_new[[time_col]])]
+    is_post <- !is.na(df_new[[group_col]]) & df_new[[time_col]] >= df_new[[group_col]]
+    hit <- is_post & is.finite(att_s)
+    df_new[which(hit), cf_mean_rate := cf_mean_rate - att_s[hit]]
+    df_new[, counterfactual := cf_mean_rate]
+    if (".cs_surface" %in% names(df_new)) df_new[, .cs_surface := NULL]
+    return(df_new)
+  }
   # Per-cohort fallback (mean estimable delta) for treated post cells that did does
   # NOT estimate (structurally: late periods / last cohort, or ragged coverage).
   # Such cells are INERT for the estimator's ATT (it can't estimate them either), so
@@ -544,7 +580,7 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
       # Treated units in cohort gv present at BOTH the base year (gv-1) and curr_time
       in_cohort <- df_new[[group_col]] == gv & !is.na(df_new[[group_col]])
       pre <- df_new[in_cohort & df_new[[time_col]] == pre_time,
-                    .(cf_u = get(unit_col), cf_anchor = get(outcome_col))]
+                    .(cf_u = get(unit_col), cf_anchor = get(oc_eff))]
       post_units <- df_new[[unit_col]][in_cohort & df_new[[time_col]] == curr_time]
       pre <- pre[cf_u %in% post_units & !is.na(cf_anchor)]
       if (nrow(pre) == 0) next
@@ -576,6 +612,7 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
     }
   }
 
+  if (use_cohort_surface && ".cs_surface" %in% names(df_new)) df_new[, .cs_surface := NULL]
   return(df_new)
 }
 

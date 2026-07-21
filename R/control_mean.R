@@ -134,7 +134,63 @@ cm_cs_group <- function(df, unit, time, outcome, treat_ind, pop_var = NULL) {
   as.numeric(ay + (Ct - Cat))
 }
 
+#' CS-cohort untreated mean surface (option B: non-additive, satisfies CSA-not-BJS)
+#'
+#' Fits a SMOOTHED, deliberately NON-ADDITIVE untreated mean surface
+#' \deqn{S(i,t) = \alpha_i + \gamma_t + \sum_g 1\{cohort_i = g\}\,\beta_g\,(t-\bar t)}
+#' on the UNTREATED cells only (never-treated units + eventually-treated units'
+#' pre-adoption years), then predicts \eqn{S} for every row. \eqn{\alpha_i} is a
+#' state fixed effect, \eqn{\gamma_t} one COMMON nonparametric calendar-year path
+#' (never-treated is the reference cohort, so its trend is folded into
+#' \eqn{\gamma_t}), and \eqn{\beta_g} is each adoption cohort's OWN linear (or
+#' polynomial, \code{trend_order = 2}) trend deviation from that common path.
+#'
+#' The \eqn{\beta_g} are what make \eqn{S} non-additive: with all \eqn{\beta_g=0}
+#' this collapses to \eqn{\alpha_i+\gamma_t} (imputation's additive two-way
+#' structure). The cohort-trend divergence \eqn{\beta_g - \bar\beta_{pool}} drives
+#' both (i) the imputation bias (BJS cannot represent \eqn{\beta_g}) and (ii) the
+#' CS pre-period placebos -- which do not test CSA's post-period restriction and
+#' are irrelevant to its validity. Only the realized outcome ENTERS the fit (as a
+#' smoothed mean); no realized cell is copied into \eqn{S}, so injected noise is
+#' not recycled. \code{enforce_PTA_CS} anchors the treated counterfactual on
+#' \eqn{S(i,g-1)} + did's own control-side change of \eqn{S}, so the CS estimand
+#' is ~0 by construction while imputation is misspecified.
+#' @keywords internal
+cs_cohort_surface <- function(df, unit, group, time, outcome, trend_order = 1L) {
+  d <- data.table::as.data.table(df)
+  tm <- as.numeric(d[[time]]); g <- d[[group]]
+  cohort <- ifelse(is.na(g), 0, as.numeric(g))
+  treat  <- as.integer(cohort > 0 & tm >= cohort)
+  DT <- data.table::data.table(
+    .y   = as.numeric(d[[outcome]]),
+    .uid = factor(as.character(d[[unit]])),
+    .tt  = factor(tm),
+    .coh = factor(cohort),
+    .yrc = tm - mean(sort(unique(tm))))
+  DT[, .yrc2 := .yrc^2]
+  if (!("0" %in% levels(DT$.coh))) {
+    stop("cs_cohort_surface: no never-treated (cohort 0) reference units; ",
+         "the CS-cohort surface needs a never-treated group.", call. = FALSE)
+  }
+  untr <- DT[treat == 0 & is.finite(.y)]
+  rhs <- if (trend_order >= 2L) "i(.coh, .yrc, ref = '0') + i(.coh, .yrc2, ref = '0')" else
+                                "i(.coh, .yrc, ref = '0')"
+  fit <- fixest::feols(stats::as.formula(paste0(".y ~ ", rhs, " | .uid + .tt")),
+                       data = untr, notes = FALSE, warn = FALSE)
+  S <- as.numeric(stats::predict(fit, newdata = DT))
+  bad <- !is.finite(S)
+  if (any(bad)) {                                   # fall back to unit untreated mean
+    um <- untr[, .(m = mean(.y)), by = .uid]
+    S[bad] <- um$m[match(DT$.uid[bad], um$.uid)]
+    S[!is.finite(S)] <- mean(untr$.y)
+  }
+  S
+}
+
 # Registry of available control-mean surfaces. ADD NEW SURFACES HERE.
+# NOTE: "cs_cohort" is handled specially in enforce_PTA_CS + the reroll block
+# (it supplies the FULL mean surface, treated cells included), so it is not a
+# per-row registry surface and is intentionally absent here.
 .CONTROL_MEAN_SURFACES <- list(
   twfe      = cm_twfe,
   cs_anchor = cm_cs_anchor,

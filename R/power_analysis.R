@@ -250,11 +250,18 @@ run_power_analysis <- function(data_clean,
         #     control-mean surface, then bounded noise (mean-preserving latent lognormal
         #     x count/share draw) on EVERY cell so control-side sampling variance enters
         #     the estimator. Opt-in via noise_spec$reroll_controls. ---
-        cm_fn  <- get_control_mean_surface(noise_spec$control_mean)
-        mu_all <- cm_fn(counterfactual_data, unit_var, time_var, outcome, treat_ind_var, pop_var)
-        .is_ctrl <- counterfactual_data[[treat_ind_var]] != 1
-        counterfactual_data[, .mean_rate := cf_mean_rate]
-        counterfactual_data[.is_ctrl, .mean_rate := mu_all[.is_ctrl]]
+        if (identical(noise_spec$control_mean, "cs_cohort")) {
+          # option B: enforce_PTA_CS already populated cf_mean_rate with the FULL
+          # CS-cohort surface for every cell (control = S, treated post = the
+          # CS-consistent null), so use it directly -- no per-row surface splice.
+          counterfactual_data[, .mean_rate := cf_mean_rate]
+        } else {
+          cm_fn  <- get_control_mean_surface(noise_spec$control_mean)
+          mu_all <- cm_fn(counterfactual_data, unit_var, time_var, outcome, treat_ind_var, pop_var)
+          .is_ctrl <- counterfactual_data[[treat_ind_var]] != 1
+          counterfactual_data[, .mean_rate := cf_mean_rate]
+          counterfactual_data[.is_ctrl, .mean_rate := mu_all[.is_ctrl]]
+        }
         counterfactual_data[, .eff := data.table::fifelse(get(treat_ind_var) == 1, percent_effect, 1)]
         sig <- if (!is.null(noise_spec$latent_sigma)) noise_spec$latent_sigma else
                latent_sigma_default(counterfactual_data, outcome, pop_var, treat_ind_var)
