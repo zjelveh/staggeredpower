@@ -16,7 +16,9 @@ calibrate_noise(
   rate_scale = 1e+05,
   n_cal_sims = 60L,
   seed = 1L,
-  min_periods = 5L
+  min_periods = 5L,
+  group_var = NULL,
+  cohort_trend = FALSE
 )
 }
 \arguments{
@@ -24,7 +26,8 @@ calibrate_noise(
 
 \item{outcome, unit_var, time_var, treat_ind_var}{Column names.}
 
-\item{family}{"rate" (Poisson-lognormal) or "share" (logit-normal-Binomial).}
+\item{family}{"rate" (Poisson-lognormal, returns \code{latent_sigma}) or
+"share" (Beta-Binomial, returns \code{latent_phi} -- the concentration).}
 
 \item{pop_var}{Population column (required for family="rate").}
 
@@ -39,8 +42,10 @@ calibrate_noise(
 \item{min_periods}{Minimum untreated periods per unit to enter the SD target (default 5).}
 }
 \value{
-A list with \code{latent_sigma}, \code{latent_rho}, \code{sigma_analytic},
-\code{sigma_range}, \code{target_per_unit_sd}, and \code{family}.
+A list. For \code{family="rate"}: \code{latent_sigma},
+\code{sigma_analytic}, \code{sigma_range}. For \code{family="share"}:
+\code{latent_phi} (Beta-Binomial concentration), \code{phi_analytic},
+\code{phi_range}. Both: \code{latent_rho}, \code{target_per_unit_sd}, \code{family}.
 }
 \description{
 Derives the multiplicative latent-shock log-SD (\code{latent_sigma}) and its

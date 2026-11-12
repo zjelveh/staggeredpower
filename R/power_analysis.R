@@ -142,6 +142,14 @@ run_power_analysis <- function(data_clean,
     data_clean_full = data_clean
   }
 
+  # Fail early and clearly: with no treated unit-periods there is nothing to simulate. (Previously
+  # this surfaced as an uninformative did error, or as "object 'returnz' not found" in the sim loop.)
+  if (sum(data_clean_full[!is.na(get(outcome))][[treat_ind_var]], na.rm = TRUE) == 0) {
+    stop("run_power_analysis(): no treated observations (`", treat_ind_var, "` is 0 for every row with a ",
+         "non-missing `", outcome, "`", if (!is.null(min_year) || !is.null(max_year)) " in the min_year/max_year window" else "",
+         "). A power simulation needs at least one treated unit-period.", call. = FALSE)
+  }
+
   # Map pta_type to enforce_PTA method
   # "cs" -> "CS", "imputation" -> "imputation", "poisson" -> "poisson"
   enforce_method <- if (pta_type == "cs") "CS" else pta_type

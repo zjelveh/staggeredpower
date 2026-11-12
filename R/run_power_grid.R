@@ -38,6 +38,11 @@
 #'   See \code{\link{normalize_noise_spec}} for full options.
 #' @param design_resample Character. Design-level resampling: "none" (default) or
 #'   "cluster_bootstrap" (not yet implemented). Passed through to \code{\link{run_power_analysis}}.
+#' @param pop_var Character or NULL. Population column, passed to \code{\link{run_power_analysis}}
+#'   (needed for \code{noise_spec$obs_model = "poisson"} and for count outcomes). Default NULL.
+#' @param ... Further arguments passed to \code{\link{run_power_analysis}} for every grid cell
+#'   (e.g. \code{outcome_type}, \code{total_count_var}, \code{est_method}, \code{base_period},
+#'   \code{allow_unbalanced_panel}, \code{trend_type}, \code{wcr_models}).
 #'
 #' @return A list with three components:
 #' \describe{
@@ -114,7 +119,12 @@ run_power_grid <- function(data_clean,
                           parallel = FALSE,
                           n_cores = NULL,
                           noise_spec = list(engine = "none"),
-                          design_resample = "none") {
+                          design_resample = "none",
+                          pop_var = NULL,
+                          ...) {
+
+  # Captured once: `...` cannot be referenced inside the nested run_single_spec() closure.
+  extra_args <- list(...)
 
   # Input validation
   if (!is.character(outcome)) {
@@ -216,7 +226,7 @@ run_power_grid <- function(data_clean,
 
       # Run power analysis
       tryCatch({
-        result <- run_power_analysis(
+        result <- do.call(run_power_analysis, c(list(
           data_clean = outcome_data,
           unit_var = unit_var,
           group_var = group_var,
@@ -234,8 +244,9 @@ run_power_grid <- function(data_clean,
           min_year = min_year,
           max_year = max_year,
           noise_spec = noise_spec,
-          design_resample = design_resample
-        )
+          design_resample = design_resample,
+          pop_var = pop_var
+        ), extra_args))
 
         # Add specification identifiers to results
         # IMPORTANT: Extract spec_id as a local variable for parallel safety
