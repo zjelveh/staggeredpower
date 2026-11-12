@@ -96,10 +96,12 @@ adapter_did2s <- function() {
     # Second stage: treatment effect
     second_stage <- as.formula(paste0("~ i(", treat_var, ")"))
 
-    # Handle weights - did2s expects a vector, not a column name
+    # Handle weights - did2s (>= 1.0) expects the weight COLUMN NAME: it reads data[[weights]] for the
+    # first/second-stage fits and sqrt(data[[weights]]) for the GMM variance. Passing a numeric vector
+    # (the previous behavior) breaks that lookup. Fixed 2026-11-11.
     weights_vec <- NULL
     if (!is.null(weightsname) && weightsname %in% names(df)) {
-      weights_vec <- df[[weightsname]]
+      weights_vec <- weightsname
     }
 
     # Call did2s::did2s
