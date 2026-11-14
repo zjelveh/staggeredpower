@@ -164,6 +164,10 @@ run_power_analysis <- function(data_clean,
                       pta_type %in% c("cs", "imputation") &&
                       !is.null(total_count_var)
 
+  if (isTRUE(noise_spec$hold_level) && !(use_count_obs && isTRUE(noise_spec$reroll_controls)))
+    stop("noise_spec$hold_level is implemented only for obs_model = 'poisson' with pop_var and reroll_controls = TRUE.",
+         call. = FALSE)
+
   # Initial PTA enforcement (used for bound-error diagnostics only)
   pta_enforced_orig = enforce_PTA(
     data.table::copy(data_clean_full),
@@ -278,21 +282,13 @@ run_power_analysis <- function(data_clean,
         # not magnitude): stationary var = 1; innovation var = 1 - rho^2. It feeds BOTH the
         # multiplicative lognormal shock exp(sig*.v - sig^2/2) (rate / legacy share) AND the
         # Gaussian copula pnorm(.v) for the Beta-Binomial share draw.
-        if (rho_lat == 0) {
-          counterfactual_data[, .v := stats::rnorm(.N, 0, 1)]
-        } else {
-          data.table::setorderv(counterfactual_data, c(unit_var, time_var))
-          counterfactual_data[, .v := {
-            n <- .N; z <- numeric(n); z[1] <- stats::rnorm(1, 0, 1)
-            if (n > 1) { e <- stats::rnorm(n, 0, sqrt(1 - rho_lat^2))
-                        for (j in 2:n) z[j] <- rho_lat * z[j - 1] + e[j] }
-            z
-          }, by = c(unit_var)]
-        }
+        hold_level <- isTRUE(noise_spec$hold_level)
+        latent_v(counterfactual_data, unit_var, time_var, rho_lat, hold_level)
         if (use_count_obs) {
-          # Poisson-lognormal: mean-preserving multiplicative shock exp(sig*.v - sig^2/2)
+          # Poisson-lognormal: mean-preserving multiplicative shock exp(sig*.v - sig^2/2); with hold_level the
+          # unit's log multipliers average zero over its periods (the unit keeps its level), so no -sig^2/2 term
           counterfactual_data[, .lambda := pmax(.mean_rate, 0) * .eff * get(pop_var) / RATE_SCALE *
-                                exp(sig * .v - sig^2 / 2)]
+                                exp(sig * .v - if (hold_level) 0 else sig^2 / 2)]
           counterfactual_data[, y_cf := stats::rpois(.N, pmax(.lambda, 1e-8)) / get(pop_var) * RATE_SCALE]
         } else if (identical(noise_spec$share_od, "betabinom")) {
           # Beta-Binomial: p ~ Beta(mu*phi, (1-mu)*phi) -- mean-preserving (E[p]=mu), bounded on
@@ -489,4 +485,24 @@ run_power_analysis <- function(data_clean,
 
   return(list(final_vio = final_vio,
               final_power = final_power))
+}
+
+# Standardized latent Gaussian path .v, added to dt by reference: marginal N(0, 1), an AR(1) with coefficient rho over each
+# unit's rows in time order (rho = 0: independent draws). With hold_level, each unit's path is centred on its own mean over
+# its rows, so a unit's level is not redrawn and only the variation around it is random. hold_level = FALSE draws exactly
+# what run_power_analysis drew before the option existed.
+latent_v <- function(dt, unit_var, time_var, rho, hold_level = FALSE) {
+  if (rho == 0) {
+    dt[, .v := stats::rnorm(.N, 0, 1)]
+  } else {
+    data.table::setorderv(dt, c(unit_var, time_var))
+    dt[, .v := {
+      n <- .N; z <- numeric(n); z[1] <- stats::rnorm(1, 0, 1)
+      if (n > 1) { e <- stats::rnorm(n, 0, sqrt(1 - rho^2))
+                  for (j in 2:n) z[j] <- rho * z[j - 1] + e[j] }
+      z
+    }, by = c(unit_var)]
+  }
+  if (hold_level) dt[, .v := .v - mean(.v), by = c(unit_var)]
+  invisible(dt)
 }
