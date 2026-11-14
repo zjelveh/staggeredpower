@@ -80,15 +80,16 @@ test_that("imputation adapter requires didimputation package", {
   expect_true(check_adapter_deps(adapter))
 })
 
-test_that("imputation adapter handles controls", {
+test_that("imputation adapter keeps unit and time fixed effects when controls are supplied", {
   skip_if_not_installed("didimputation")
-  skip("didimputation has internal S4 error with controls on some data structures")
 
+  # didimputation adds unit and time fixed effects only when first_stage is NULL, so with controls the
+  # adapter must write them into the formula. Unit effects average 50 here and the true effect is 5, so a
+  # first stage without fixed effects returns an estimate near 55.
   test_data <- make_test_data()
 
   adapter <- adapter_imputation()
 
-  # Should work with controls
   result <- adapter$fit(
     data = test_data,
     outcome_var = "outcome",
@@ -98,5 +99,11 @@ test_that("imputation adapter handles controls", {
     controls = c("covariate1")
   )
 
-  expect_type(result$estimate, "double")
+  ref <- didimputation::did_imputation(
+    as.data.frame(test_data), yname = "outcome", gname = "group", tname = "year", idname = "state",
+    first_stage = ~ covariate1 | state + year, cluster_var = "state"
+  )
+
+  expect_equal(result$estimate, ref$estimate[1], tolerance = 1e-8)
+  expect_lt(abs(result$estimate - 5), 1)
 })

@@ -1,3 +1,14 @@
+# staggeredpower (development version)
+
+* **Fixed: the imputation adapter dropped the unit and time fixed effects whenever controls were
+  supplied.** `adapter_imputation()` built the first stage as `~ 0 + controls`, and
+  `didimputation::did_imputation()` adds its default unit + time fixed effects only when `first_stage`
+  is `NULL`, so a controlled fit imputed untreated outcomes from the controls alone. On a test panel with
+  unit effects averaging 50 and a true effect of 5 the adapter returned 54.4. The first stage is now
+  `~ controls | id + time`, the form `adapter_did2s()` already used. Fits without controls, and the
+  experimental `trend_type = "unit_trend"` branch, are unchanged. The previously skipped controls test now
+  checks the estimate against `did_imputation()` with an explicit fixed-effects first stage.
+
 # staggeredpower 0.2.2
 
 * **CS power DGP harmonized with the CS estimator.** `enforce_PTA_CS()` previously

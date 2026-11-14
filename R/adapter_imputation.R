@@ -84,10 +84,12 @@ adapter_imputation <- function() {
         )
       }
     } else {
-      # Common trends (default): no special first_stage, just controls if present
+      # Common trends (default): NULL lets didimputation use its default unit + time FE first stage.
+      # With controls the formula replaces that default, so the FEs must be written in explicitly
+      # (a bare "~ 0 + controls" fits the untreated surface with no FEs at all).
       if (!is.null(controls) && length(controls) > 0) {
         first_stage_formula <- stats::as.formula(
-          paste0("~ 0 + ", paste(controls, collapse = " + "))
+          paste0("~ ", paste(controls, collapse = " + "), " | ", id_var, " + ", time_var)
         )
       }
     }
