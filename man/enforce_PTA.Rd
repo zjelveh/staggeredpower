@@ -21,7 +21,8 @@ enforce_PTA(
   control_group = "notyettreated",
   est_method = "dr",
   base_period = "universal",
-  allow_unbalanced_panel = FALSE
+  allow_unbalanced_panel = FALSE,
+  cs_unbalanced = "rc"
 )
 }
 \arguments{
@@ -76,6 +77,11 @@ CS estimator when harmonizing the DGP with it ("notyettreated" (default) or
 \item{allow_unbalanced_panel}{Logical. For method='CS' only: passed to
 \code{did::att_gt} when deriving the harmonized control counterfactual
 (default FALSE). Ignored by other methods.}
+
+\item{cs_unbalanced}{Character. For method='CS' only: the CS estimator on an
+unbalanced panel, "rc" (default; did's repeated-cross-section 2x2) or "pairwise"
+(each ATT(g, t) on the units observed in both of its years). Must match the
+estimator applied downstream. Ignored by other methods.}
 }
 \value{
 A data.frame with enforced parallel trends (includes 'counterfactual' column)

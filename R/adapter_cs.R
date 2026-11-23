@@ -31,6 +31,7 @@ adapter_cs <- function() {
                      pop_var = NULL,
                      base_period = "varying",
                      allow_unbalanced_panel = FALSE,
+                     cs_unbalanced = c("rc", "pairwise"),  # unbalanced panels: did's repeated cross-section 2x2 ("rc") or each ATT(g,t) on the units observed in both years ("pairwise"; R/cs_pairwise.R)
                      balance_e = NULL,
                      min_e = NULL,
                      max_e = NULL,
@@ -42,6 +43,8 @@ adapter_cs <- function() {
       stop("Package 'did' is required for the CS adapter. ",
            "Install with: install.packages('did')", call. = FALSE)
     }
+
+    cs_unbalanced <- match.arg(cs_unbalanced)
 
     # Convert to data.table for manipulation
     data <- data.table::as.data.table(data)
@@ -110,14 +113,14 @@ adapter_cs <- function() {
       control_formula <- as.formula(" ~ 1")
     }
 
-    # Call did::att_gt
-    m_csa <- did::att_gt(
+    # Call did::att_gt (through .cs_att_gt, which applies cs_unbalanced)
+    m_csa <- .cs_att_gt(
       yname = working_outcome,
       xformla = control_formula,
       tname = time_var,
       idname = id_var,
       gname = group_var,
-      data = as.data.frame(data),  # did expects data.frame
+      data = data,
       cores = n_cores,
       control_group = "notyettreated",
       anticipation = 0,
@@ -125,6 +128,7 @@ adapter_cs <- function() {
       clustervars = cluster_var,
       base_period = base_period,
       allow_unbalanced_panel = allow_unbalanced_panel,
+      cs_unbalanced = cs_unbalanced,
       print_details = FALSE,
       weightsname = weightsname
     )
@@ -229,7 +233,8 @@ adapter_cs <- function() {
       estimator = est_method_label,
       pt_assumption = "additive (level scale)",
       transformation_applied = transformation_applied,
-      outcome_type_input = ifelse(is.null(outcome_type), "rate (assumed)", outcome_type)
+      outcome_type_input = ifelse(is.null(outcome_type), "rate (assumed)", outcome_type),
+      cs_unbalanced = cs_unbalanced
     )
 
     # Add pretrend_test to metadata if computed

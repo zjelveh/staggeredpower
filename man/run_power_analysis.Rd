@@ -31,6 +31,7 @@ run_power_analysis(
   noise_spec = list(engine = "none"),
   design_resample = "none",
   allow_unbalanced_panel = FALSE,
+  cs_unbalanced = "rc",
   est_method = "dr",
   base_period = "varying",
   wcr_models = NULL,
@@ -99,6 +100,10 @@ See \code{\link{normalize_noise_spec}} for full options.}
 to get a rejection probability without outcome noise.}
 
 \item{allow_unbalanced_panel}{Logical. Allow unbalanced panels (default FALSE)}
+
+\item{cs_unbalanced}{Character. CS on an unbalanced panel: "rc" (default; did's repeated-cross-section
+2x2) or "pairwise" (each ATT(g, t) on the units observed in both of its years). Used by the CS
+estimator, the CS DGP and CS WCR alike; "pairwise" requires allow_unbalanced_panel = TRUE.}
 
 \item{est_method}{Character. Estimation method for CS estimator (default "dr")}
 

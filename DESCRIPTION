@@ -19,6 +19,7 @@ Imports:
     fixest
 Suggests:
     did,
+    DRDID,
     did2s,
     didimputation,
     foreach,

@@ -18,6 +18,7 @@ wcr_test(
   est_method = "dr",
   base_period = "universal",
   allow_unbalanced_panel = TRUE,
+  cs_unbalanced = "rc",
   seed = NULL
 )
 }
@@ -37,7 +38,9 @@ studentized by its analytic (influence-function) SE for speed.}
 \item{weights}{"rademacher" (2-point; default) or "webb" (6-point; smoother
 with very few clusters).}
 
-\item{est_method, base_period, allow_unbalanced_panel}{Passed to CS.}
+\item{est_method, base_period, allow_unbalanced_panel, cs_unbalanced}{Passed to CS
+(\code{cs_unbalanced}: "rc", did as is, or "pairwise", each ATT(g, t) on the units
+observed in both of its years).}
 
 \item{seed}{Optional RNG seed.}
 }

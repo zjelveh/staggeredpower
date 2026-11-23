@@ -33,7 +33,9 @@
 #' @param B Bootstrap replications (default 999).
 #' @param weights "rademacher" (2-point; default) or "webb" (6-point; smoother
 #'   with very few clusters).
-#' @param est_method,base_period,allow_unbalanced_panel Passed to CS.
+#' @param est_method,base_period,allow_unbalanced_panel,cs_unbalanced Passed to CS
+#'   (\code{cs_unbalanced}: "rc", did as is, or "pairwise", each ATT(g, t) on the units
+#'   observed in both of its years).
 #' @param seed Optional RNG seed.
 #' @return list(estimate, se, t_obs, wcr_cval, reject, wcr_pval, B, B_finite,
 #'   weights, estimator).
@@ -43,7 +45,7 @@ wcr_test <- function(data, outcome, unit_var, time_var, group_var, treat_ind_var
                      cluster_var = NULL, B = 999L,
                      weights = c("rademacher", "webb"),
                      est_method = "dr", base_period = "universal",
-                     allow_unbalanced_panel = TRUE, seed = NULL) {
+                     allow_unbalanced_panel = TRUE, cs_unbalanced = "rc", seed = NULL) {
   estimator <- match.arg(estimator); weights <- match.arg(weights)
   if (!is.null(seed)) set.seed(seed)
   if (estimator == "imputation" && !requireNamespace("didimputation", quietly = TRUE))
@@ -67,11 +69,12 @@ wcr_test <- function(data, outcome, unit_var, time_var, group_var, treat_ind_var
       if (is.null(m)) return(c(NA_real_, NA_real_))
       r <- as.data.frame(m)[1, ]; c(r$estimate, r$std.error)
     } else {
-      a <- tryCatch(did::att_gt(
+      a <- tryCatch(.cs_att_gt(
              yname = yname, tname = time_var, idname = unit_var, gname = group_var,
-             xformla = ~1, data = as.data.frame(dd), control_group = "notyettreated",
-             allow_unbalanced_panel = allow_unbalanced_panel, est_method = est_method,
-             bstrap = FALSE, base_period = base_period), error = function(e) NULL)
+             xformla = ~1, data = dd, control_group = "notyettreated",
+             allow_unbalanced_panel = allow_unbalanced_panel, cs_unbalanced = cs_unbalanced,
+             est_method = est_method, bstrap = FALSE, base_period = base_period),
+             error = function(e) NULL)
       if (is.null(a)) return(c(NA_real_, NA_real_))
       s <- tryCatch(did::aggte(a, type = "simple", na.rm = TRUE), error = function(e) NULL)
       if (is.null(s)) return(c(NA_real_, NA_real_))

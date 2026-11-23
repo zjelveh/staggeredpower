@@ -40,6 +40,10 @@
 #' @param allow_unbalanced_panel Logical. For method='CS' only: passed to
 #'   \code{did::att_gt} when deriving the harmonized control counterfactual
 #'   (default FALSE). Ignored by other methods.
+#' @param cs_unbalanced Character. For method='CS' only: the CS estimator on an
+#'   unbalanced panel, "rc" (default; did's repeated-cross-section 2x2) or "pairwise"
+#'   (each ATT(g, t) on the units observed in both of its years). Must match the
+#'   estimator applied downstream. Ignored by other methods.
 #'
 #' @return A data.frame with enforced parallel trends (includes 'counterfactual' column)
 #'
@@ -82,7 +86,8 @@ enforce_PTA <- function(df, unit, group, time, outcome,
                         control_group = "notyettreated",
                         est_method = "dr",
                         base_period = "universal",
-                        allow_unbalanced_panel = FALSE) {
+                        allow_unbalanced_panel = FALSE,
+                        cs_unbalanced = "rc") {
   method <- match.arg(method)
   trend_type <- match.arg(trend_type)
   trend_order <- as.integer(trend_order)
@@ -105,7 +110,8 @@ enforce_PTA <- function(df, unit, group, time, outcome,
     enforce_PTA_CS(df, unit, group, time, outcome, controls, seed, noise_spec,
                    control_group = control_group, est_method = est_method,
                    base_period = base_period,
-                   allow_unbalanced_panel = allow_unbalanced_panel)
+                   allow_unbalanced_panel = allow_unbalanced_panel,
+                   cs_unbalanced = cs_unbalanced)
   } else if (method == "poisson") {
     enforce_PTA_poisson(df, unit, group, time, outcome, controls, seed,
                         pop_var, outcome_type, trend_type, trend_order, noise_spec)
@@ -368,7 +374,7 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
 #' @noRd
 .cs_delta_control <- function(df, unit_col, group_col, time_col, outcome_col,
                               controls, control_group, est_method, base_period,
-                              allow_unbalanced_panel) {
+                              allow_unbalanced_panel, cs_unbalanced = "rc") {
   if (!requireNamespace("did", quietly = TRUE)) {
     stop("Package 'did' is required for the CS power DGP (pta_type = 'cs'). ",
          "Install with: install.packages('did')", call. = FALSE)
@@ -383,7 +389,7 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
       lapply(controls, function(cc) df[[cc]])
     } else NULL,
     meta = list(unit_col, group_col, time_col, outcome_col, controls,
-                control_group, est_method, base_period, allow_unbalanced_panel)
+                control_group, est_method, base_period, allow_unbalanced_panel, cs_unbalanced)
   ))
   cached <- .sp_cs_delta_cache[[key]]
   if (!is.null(cached)) return(data.table::copy(cached))
@@ -398,12 +404,12 @@ enforce_PTA_imputation <- function(df, unit, group, time, outcome, controls = NU
     stats::as.formula("~ 1")
   }
 
-  m <- did::att_gt(
+  m <- .cs_att_gt(
     yname = outcome_col, tname = time_col, idname = unit_col, gname = group_col,
-    data = as.data.frame(d), xformla = xformla, control_group = control_group,
+    data = d, xformla = xformla, control_group = control_group,
     anticipation = 0, est_method = est_method, base_period = base_period,
-    allow_unbalanced_panel = allow_unbalanced_panel, clustervars = unit_col,
-    print_details = FALSE
+    allow_unbalanced_panel = allow_unbalanced_panel, cs_unbalanced = cs_unbalanced,
+    clustervars = unit_col, print_details = FALSE
   )
 
   gt <- data.table::data.table(g = m$group, t = m$t, att = m$att)
@@ -436,7 +442,8 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
                             control_group = "notyettreated",
                             est_method = "dr",
                             base_period = "universal",
-                            allow_unbalanced_panel = FALSE) {
+                            allow_unbalanced_panel = FALSE,
+                            cs_unbalanced = "rc") {
   noise_spec <- normalize_noise_spec(noise_spec)
   if (!is.null(seed)) set.seed(seed)
 
@@ -488,7 +495,7 @@ enforce_PTA_CS <- function(df, unit, group, time, outcome, controls = NULL, seed
   # the estimator uses (incl. late-adopter / not-yet-treated controls), by design.
   delta_dt <- .cs_delta_control(df_new, unit_col, group_col, time_col, oc_eff,
                                 controls, control_group, est_method, base_period,
-                                allow_unbalanced_panel)
+                                allow_unbalanced_panel, cs_unbalanced)
   data.table::setkeyv(delta_dt, c("g", "t"))
 
   # --- CS-cohort surface (option B): build the full mean surface directly. ---

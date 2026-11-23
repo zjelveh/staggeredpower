@@ -1,5 +1,18 @@
 # staggeredpower (development version)
 
+* **New: `cs_unbalanced = "pairwise"` for Callaway--Sant'Anna on unbalanced panels.** With
+  `allow_unbalanced_panel = TRUE` on a panel with gaps, `did` (2.3.0) sets `panel = FALSE` and estimates
+  every ATT(g, t) with its repeated-cross-section 2x2 estimators, whose base-year and year-t means cover
+  different units, so unit effects do not cancel: on an additive outcome with no effect and gaps that
+  depend on the level, CS returns a non-zero ATT. `"pairwise"` estimates each ATT(g, t) with `did`'s panel
+  2x2 estimator on the units observed in both of its years, keeping every unit wherever it has those two
+  years (`R/cs_pairwise.R`: the grid is completed with outcome `Inf`, read as not observed, and a `did`
+  custom `est_method` drops those units per comparison, so `did`'s aggregation, bootstrap and event study
+  apply unchanged). On a balanced panel it equals `did`'s panel estimator exactly, influence functions and
+  bootstrap SEs included. Available in the CS adapter (`estimate_models()`), `enforce_PTA()` (CS method,
+  both the delta-control and `cs_cohort` paths), `run_power_analysis()` and `wcr_test()`; it requires
+  `allow_unbalanced_panel = TRUE` and time-invariant weights. The default, `"rc"`, leaves results unchanged.
+
 * **Fixed: the imputation adapter dropped the unit and time fixed effects whenever controls were
   supplied.** `adapter_imputation()` built the first stage as `~ 0 + controls`, and
   `didimputation::did_imputation()` adds its default unit + time fixed effects only when `first_stage`

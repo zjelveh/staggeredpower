@@ -36,6 +36,9 @@
 #'   "cluster_bootstrap" (not yet implemented). When engine="none", this is the only way
 #'   to get a rejection probability without outcome noise.
 #' @param allow_unbalanced_panel Logical. Allow unbalanced panels (default FALSE)
+#' @param cs_unbalanced Character. CS on an unbalanced panel: "rc" (default; did's repeated-cross-section
+#'   2x2) or "pairwise" (each ATT(g, t) on the units observed in both of its years). Used by the CS
+#'   estimator, the CS DGP and CS WCR alike; "pairwise" requires allow_unbalanced_panel = TRUE.
 #' @param est_method Character. Estimation method for CS estimator (default "dr")
 #' @param base_period Character. Base period for CS estimator (default "varying")
 #' @export
@@ -65,6 +68,7 @@ run_power_analysis <- function(data_clean,
                                noise_spec = list(engine = "none"),
                                design_resample = "none",
                                allow_unbalanced_panel = FALSE,
+                               cs_unbalanced = "rc",
                                est_method = "dr",
                                base_period = "varying",
                                wcr_models = NULL,
@@ -185,7 +189,8 @@ run_power_analysis <- function(data_clean,
     control_group = "notyettreated",
     est_method = est_method,
     base_period = base_period,
-    allow_unbalanced_panel = allow_unbalanced_panel
+    allow_unbalanced_panel = allow_unbalanced_panel,
+    cs_unbalanced = cs_unbalanced
   )
 
   # --- Track bound errors (diagnostic only, no unit dropping) ---
@@ -248,7 +253,8 @@ run_power_analysis <- function(data_clean,
         control_group = "notyettreated",
         est_method = est_method,
         base_period = base_period,
-        allow_unbalanced_panel = allow_unbalanced_panel
+        allow_unbalanced_panel = allow_unbalanced_panel,
+        cs_unbalanced = cs_unbalanced
       )
       # Now scale the counterfactual outcomes within the simulation
       counterfactual_data = data.table::copy(pta_enforced_sim)
@@ -376,6 +382,7 @@ run_power_analysis <- function(data_clean,
           pop_var = pop_var,
           family = family,
           allow_unbalanced_panel = allow_unbalanced_panel,
+          cs_unbalanced = cs_unbalanced,
           est_method = est_method,
           base_period = base_period
         )
@@ -394,7 +401,8 @@ run_power_analysis <- function(data_clean,
                      time_var = time_var, group_var = group_var, treat_ind_var = treat_ind_var,
                      estimator = model, cluster_var = unit_var, B = wcr_B, weights = wcr_weights,
                      est_method = est_method, base_period = base_period,
-                     allow_unbalanced_panel = allow_unbalanced_panel),
+                     allow_unbalanced_panel = allow_unbalanced_panel,
+                     cs_unbalanced = cs_unbalanced),
                    error = function(e) NULL)
             if (!is.null(.wr)) { wcr_cval <- .wr$wcr_cval; wcr_reject <- .wr$reject; wcr_pval <- .wr$wcr_pval }
           }
