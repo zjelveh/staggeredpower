@@ -11,7 +11,7 @@ wcr_test(
   time_var,
   group_var,
   treat_ind_var,
-  estimator = c("imputation", "cs"),
+  estimator = c("imputation", "cs", "twfe"),
   cluster_var = NULL,
   B = 999L,
   weights = c("rademacher", "webb"),
@@ -19,7 +19,8 @@ wcr_test(
   base_period = "universal",
   allow_unbalanced_panel = TRUE,
   cs_unbalanced = "rc",
-  seed = NULL
+  seed = NULL,
+  null_fit = c("untreated", "all")
 )
 }
 \arguments{
@@ -28,8 +29,11 @@ wcr_test(
 \item{outcome, unit_var, time_var, group_var, treat_ind_var}{Column names. \code{group_var}
 is the cohort (0/NA = never-treated), as the estimators expect.}
 
-\item{estimator}{"imputation" (didimputation) or "cs" (did::att_gt). CS is
-studentized by its analytic (influence-function) SE for speed.}
+\item{estimator}{"imputation" (didimputation), "cs" (did::att_gt) or "twfe"
+(fixest::feols of \code{outcome ~ treat_ind | unit + time}, cluster-robust SE by
+\code{cluster_var}; for validating the bootstrap against established
+implementations such as fwildclusterboot). CS is studentized by its analytic
+(influence-function) SE for speed.}
 
 \item{cluster_var}{Cluster column (default \code{unit_var}).}
 
@@ -43,6 +47,11 @@ with very few clusters).}
 observed in both of its years).}
 
 \item{seed}{Optional RNG seed.}
+
+\item{null_fit}{Sample for the restricted null fit: "untreated" (default; the
+estimators' own counterfactual model) or "all" (every cell, as the textbook
+restricted wild cluster bootstrap for a regression with the treatment
+coefficient set to zero).}
 }
 \value{
 list(estimate, se, t_obs, wcr_cval, reject, wcr_pval, B, B_finite,
@@ -62,6 +71,7 @@ cell to get \code{yhat}, and residuals \code{uhat = outcome - yhat}
 (treated-post residuals carry the effect + noise). For each replication draw
 one weight per CLUSTER, form \code{y* = yhat + w * uhat} (whole cluster block
 flipped, preserving within-cluster correlation), re-run the estimator, and
-studentize \code{t* = ATT* / SE*}. The 97.5th percentile of \code{|t*|} is the
-critical value.
+studentize \code{t* = ATT* / SE*}. The 95th percentile of \code{|t*|} is the
+critical value (a two-sided 5\\% test); the p-value is the share of \code{|t*|}
+at least as large as \code{|t_obs|}.
 }

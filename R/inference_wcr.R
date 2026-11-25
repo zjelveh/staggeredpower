@@ -21,14 +21,22 @@
 #' (treated-post residuals carry the effect + noise). For each replication draw
 #' one weight per CLUSTER, form \code{y* = yhat + w * uhat} (whole cluster block
 #' flipped, preserving within-cluster correlation), re-run the estimator, and
-#' studentize \code{t* = ATT* / SE*}. The 97.5th percentile of \code{|t*|} is the
-#' critical value.
+#' studentize \code{t* = ATT* / SE*}. The 95th percentile of \code{|t*|} is the
+#' critical value (a two-sided 5\% test); the p-value is the share of \code{|t*|}
+#' at least as large as \code{|t_obs|}.
 #'
 #' @param data Panel data.
 #' @param outcome,unit_var,time_var,group_var,treat_ind_var Column names. \code{group_var}
 #'   is the cohort (0/NA = never-treated), as the estimators expect.
-#' @param estimator "imputation" (didimputation) or "cs" (did::att_gt). CS is
-#'   studentized by its analytic (influence-function) SE for speed.
+#' @param estimator "imputation" (didimputation), "cs" (did::att_gt) or "twfe"
+#'   (fixest::feols of \code{outcome ~ treat_ind | unit + time}, cluster-robust SE by
+#'   \code{cluster_var}; for validating the bootstrap against established
+#'   implementations such as fwildclusterboot). CS is studentized by its analytic
+#'   (influence-function) SE for speed.
+#' @param null_fit Sample for the restricted null fit: "untreated" (default; the
+#'   estimators' own counterfactual model) or "all" (every cell, as the textbook
+#'   restricted wild cluster bootstrap for a regression with the treatment
+#'   coefficient set to zero).
 #' @param cluster_var Cluster column (default \code{unit_var}).
 #' @param B Bootstrap replications (default 999).
 #' @param weights "rademacher" (2-point; default) or "webb" (6-point; smoother
@@ -41,12 +49,13 @@
 #'   weights, estimator).
 #' @export
 wcr_test <- function(data, outcome, unit_var, time_var, group_var, treat_ind_var,
-                     estimator = c("imputation", "cs"),
+                     estimator = c("imputation", "cs", "twfe"),
                      cluster_var = NULL, B = 999L,
                      weights = c("rademacher", "webb"),
                      est_method = "dr", base_period = "universal",
-                     allow_unbalanced_panel = TRUE, cs_unbalanced = "rc", seed = NULL) {
-  estimator <- match.arg(estimator); weights <- match.arg(weights)
+                     allow_unbalanced_panel = TRUE, cs_unbalanced = "rc", seed = NULL,
+                     null_fit = c("untreated", "all")) {
+  estimator <- match.arg(estimator); weights <- match.arg(weights); null_fit <- match.arg(null_fit)
   if (!is.null(seed)) set.seed(seed)
   if (estimator == "imputation" && !requireNamespace("didimputation", quietly = TRUE))
     stop("wcr_test(estimator='imputation') requires the 'didimputation' package.")
@@ -68,6 +77,13 @@ wcr_test <- function(data, outcome, unit_var, time_var, group_var, treat_ind_var
              error = function(e) NULL)
       if (is.null(m)) return(c(NA_real_, NA_real_))
       r <- as.data.frame(m)[1, ]; c(r$estimate, r$std.error)
+    } else if (estimator == "twfe") {
+      m <- tryCatch(fixest::feols(
+             stats::as.formula(sprintf("`%s` ~ `%s` | `%s` + `%s`", yname, treat_ind_var, unit_var, time_var)),
+             data = dd, cluster = cluster_var, notes = FALSE),
+             error = function(e) NULL)
+      if (is.null(m)) return(c(NA_real_, NA_real_))
+      c(unname(stats::coef(m)[treat_ind_var]), unname(fixest::se(m)[treat_ind_var]))
     } else {
       a <- tryCatch(.cs_att_gt(
              yname = yname, tname = time_var, idname = unit_var, gname = group_var,
@@ -86,8 +102,8 @@ wcr_test <- function(data, outcome, unit_var, time_var, group_var, treat_ind_var
   o <- fit_est(d, outcome); t_obs <- o[1] / o[2]
   if (!is.finite(t_obs)) stop("wcr_test: observed estimate/SE is not finite.")
 
-  # restricted null fit on UNTREATED cells; predict every cell
-  unt <- d[[treat_ind_var]] != 1
+  # restricted null fit (default on the UNTREATED cells); predict every cell
+  unt <- if (null_fit == "untreated") d[[treat_ind_var]] != 1 else rep(TRUE, nrow(d))
   rf <- fixest::feols(stats::as.formula(sprintf("`%s` ~ 1 | `%s` + `%s`", outcome, unit_var, time_var)),
                       data = d[unt], notes = FALSE)
   yhat <- as.numeric(stats::predict(rf, newdata = d))
