@@ -1,4 +1,4 @@
-# staggeredpower (development version)
+# staggeredpower 0.3.0
 
 * **New: `cs_unbalanced = "pairwise"` for Callaway--Sant'Anna on unbalanced panels.** With
   `allow_unbalanced_panel = TRUE` on a panel with gaps, `did` (2.3.0) sets `panel = FALSE` and estimates
