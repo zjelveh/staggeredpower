@@ -1,3 +1,13 @@
+# staggeredpower 0.3.1
+
+* **Fixed: the cluster bootstraps depended on the order of the rows.** `wcr_test()` drew one weight per
+  cluster in the order the clusters first appear in the data, and the imputation adapter's cluster
+  bootstrap (option `staggeredpower.imp_boot`) resampled clusters from that same order, so the same panel
+  and seed in another row order gave other draws, and other p-values and critical values. Both now take
+  the clusters in sorted order (`sort(method = "radix")`, the same in every locale), so the draws depend on
+  the seed alone. Results are unchanged wherever the clusters already appeared in that order, as in a
+  panel sorted by a numeric cluster id. Test: `tests/testthat/test-bootstrap-row-order.R`.
+
 # staggeredpower 0.3.0
 
 * **New: `cs_unbalanced = "pairwise"` for Callaway--Sant'Anna on unbalanced panels.** With

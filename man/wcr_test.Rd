@@ -73,5 +73,6 @@ one weight per CLUSTER, form \code{y* = yhat + w * uhat} (whole cluster block
 flipped, preserving within-cluster correlation), re-run the estimator, and
 studentize \code{t* = ATT* / SE*}. The 95th percentile of \code{|t*|} is the
 critical value (a two-sided 5\\% test); the p-value is the share of \code{|t*|}
-at least as large as \code{|t_obs|}.
+at least as large as \code{|t_obs|}. The clusters are taken in sorted order, so
+which cluster gets which weight depends on \code{seed} alone, not on the row order.
 }

@@ -23,7 +23,8 @@
 #' flipped, preserving within-cluster correlation), re-run the estimator, and
 #' studentize \code{t* = ATT* / SE*}. The 95th percentile of \code{|t*|} is the
 #' critical value (a two-sided 5\% test); the p-value is the share of \code{|t*|}
-#' at least as large as \code{|t_obs|}.
+#' at least as large as \code{|t_obs|}. The clusters are taken in sorted order, so
+#' which cluster gets which weight depends on \code{seed} alone, not on the row order.
 #'
 #' @param data Panel data.
 #' @param outcome,unit_var,time_var,group_var,treat_ind_var Column names. \code{group_var}
@@ -114,7 +115,10 @@ wcr_test <- function(data, outcome, unit_var, time_var, group_var, treat_ind_var
     if (weights == "rademacher") sample(c(-1, 1), G, replace = TRUE)
     else sample(c(-sqrt(1.5), -1, -sqrt(0.5), sqrt(0.5), 1, sqrt(1.5)), G, replace = TRUE)
   }
-  clusters <- unique(d[[cluster_var]]); ckey <- match(d[[cluster_var]], clusters)
+  # Clusters in sorted order (radix: the C locale, the same on every machine), so which cluster gets which
+  # weight depends on the seed only, not on the order of the rows.
+  clusters <- sort(unique(d[[cluster_var]]), method = "radix", na.last = TRUE)
+  ckey <- match(d[[cluster_var]], clusters)
   yobs <- d[[outcome]]; ycol <- ".y_wcr"
 
   tstar <- numeric(B)

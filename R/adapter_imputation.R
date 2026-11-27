@@ -119,7 +119,8 @@ adapter_imputation <- function() {
     .imp_boot_B  <- getOption("staggeredpower.imp_boot", 0L)
     if (is.numeric(.imp_boot_B) && .imp_boot_B > 0) {
       .dtb  <- data.table::as.data.table(data)
-      .cids <- unique(.dtb[[cluster_var]])
+      # sorted (radix: locale-free), so the resampled clusters depend on the seed only, not on the row order
+      .cids <- sort(unique(.dtb[[cluster_var]]), method = "radix", na.last = TRUE)
       .ests <- numeric(.imp_boot_B)
       for (.b in seq_len(.imp_boot_B)) {
         .samp  <- sample(.cids, length(.cids), replace = TRUE)
